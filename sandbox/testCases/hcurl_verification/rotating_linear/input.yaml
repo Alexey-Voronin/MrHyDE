@@ -9,7 +9,7 @@
 #
 ANONYMOUS:
   debug level: 0
-  verbosity: 5
+  verbosity: 10
 
   Mesh:
     dimension: 3
@@ -20,22 +20,23 @@ ANONYMOUS:
     ymax: 1.0
     zmin: 0.0
     zmax: 1.0
-    NX: 4
-    NY: 4
-    NZ: 4
+    NX: 50
+    NY: 50
+    NZ: 50
     blocknames: eblock-0_0_0
 
   Physics:
     Dirichlet conditions:
       scalar data: false
+      static data: false  
     eblock-0_0_0:
       modules: maxwell
       assemble boundary terms: false
       Dirichlet conditions:
         Ex:
-          all boundaries: '-y'
+          all boundaries: '0.0-y'
         Ey:
-          all boundaries: 'x'
+          all boundaries: '0.0+x'
         Ez:
           all boundaries: '0.0'
       Initial conditions:
@@ -73,13 +74,29 @@ ANONYMOUS:
     number of steps: 1
     initial type: L2-projection
     use preconditioner: true
-    use direct solver: true
+    preconditioner type: Ifpack2
+    preconditioner variant: RELAXATION
+    right preconditioner: true
+    use direct solver: false
+    reuse preconditioner: true
+    reuse Jacobian: false
+    preconditioner reuse type: full
+    Belos implicit residual scaling: Norm of Initial Residual
+    storage proportion: 1.0
+    Belos solver: 'BiCGStab'
+    enable autotune: false
+    Preconditioner Settings:
+       "relaxation: type": "Jacobi"
+       "relaxation: damping factor": 0.5
+       "relaxation: backward mode": false
+       "relaxation: sweeps": 2
+
 
   Analysis:
     analysis type: forward
 
   Postprocess:
-    write solution: true
+    write solution: false
     write frequency: 1
     compute errors: true
     eblock-0_0_0:
