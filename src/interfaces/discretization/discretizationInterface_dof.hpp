@@ -61,6 +61,71 @@ void DiscretizationInterface::buildDOFManagers() {
         setDOF->printFieldInformation(cout);
       }
     }
+    if (verbosity>=10) {
+      // Count DOFs per field (all processors participate)
+      std::map<std::string, std::set<GO>> field_owned_gids;
+      std::vector<GO> owned_gids;
+      setDOF->getOwnedIndices(owned_gids);
+      std::set<GO> owned_set(owned_gids.begin(), owned_gids.end());
+      
+      for (size_t blk = 0; blk < block_names.size(); ++blk) {
+        const std::vector<LO>& myElems = setDOF->getElementBlock(block_names[blk]);
+        for (size_t j = 0; j < physics->var_list[set][blk].size(); ++j) {
+          std::string varname = physics->var_list[set][blk][j];
+          int fieldNum = setDOF->getFieldNum(varname);
+          const std::vector<int>& offsets = setDOF->getGIDFieldOffsets(block_names[blk], fieldNum);
+          for (size_t e = 0; e < myElems.size(); ++e) {
+            std::vector<GO> elem_gids;
+            setDOF->getElementGIDs(myElems[e], elem_gids);
+            for (size_t k = 0; k < offsets.size(); ++k) {
+              GO gid = elem_gids[offsets[k]];
+              if (owned_set.count(gid) > 0) {
+                field_owned_gids[varname].insert(gid);
+              }
+            }
+          }
+        }
+      }
+      
+      // Reduce to get global counts
+      std::map<std::string, GO> local_counts, global_counts;
+      for (size_t blk = 0; blk < block_names.size(); ++blk) {
+        for (size_t j = 0; j < physics->var_list[set][blk].size(); ++j) {
+          std::string varname = physics->var_list[set][blk][j];
+          local_counts[varname] = static_cast<GO>(field_owned_gids[varname].size());
+        }
+      }
+      for (auto& kv : local_counts) {
+        GO local_val = kv.second;
+        GO global_val = 0;
+        Teuchos::reduceAll<LO,GO>(*comm, Teuchos::REDUCE_SUM, 1, &local_val, &global_val);
+        global_counts[kv.first] = global_val;
+      }
+      
+      if (comm->getRank() == 0) {
+        cout << "  DOF Counts per Block:" << endl;
+        for (size_t blk = 0; blk < block_names.size(); ++blk) {
+          cout << "    Block \"" << block_names[blk] << "\":" << endl;
+          std::map<std::string, std::vector<std::pair<std::string, GO>>> type_vars;
+          for (size_t j = 0; j < physics->var_list[set][blk].size(); ++j) {
+            std::string varname = physics->var_list[set][blk][j];
+            std::string btype = physics->types[set][blk][j];
+            if (btype.size() >= 5) btype = btype.substr(0, 5);
+            if (btype.substr(0,4) == "HVOL" || btype.substr(0,4) == "HDIV") 
+              btype = btype.substr(0, 4);
+            type_vars[btype].push_back({varname, global_counts[varname]});
+          }
+          for (const auto& kv : type_vars) {
+            cout << "      " << kv.first << ": ";
+            for (size_t i = 0; i < kv.second.size(); ++i) {
+              if (i > 0) cout << ", ";
+              cout << kv.second[i].first << " (" << kv.second[i].second << " DOFs)";
+            }
+            cout << endl;
+          }
+        }
+      }
+    }
 
     // Instead of storing the DOF manager, which holds onto the mesh, we extract what we need
     //DOF.push_back(setDOF);

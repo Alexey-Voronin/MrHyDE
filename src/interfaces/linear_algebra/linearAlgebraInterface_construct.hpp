@@ -151,6 +151,13 @@ void LinearAlgebraInterface<Node>::setupLinearAlgebra() {
 
     Teuchos::reduceAll<LO,GO>(*comm,Teuchos::REDUCE_SUM,1,&localNumUnknowns,&globalNumUnknowns);
     
+    if (verbosity > 5) {
+      cout << " - Processor " << comm->getRank() << " has " << numUnknowns << " owned DOFs (set " << set << ")" << endl;
+    }
+    if (verbosity > 0 && comm->getRank() == 0) {
+      cout << " - Total global DOFs (set " << set << "): " << globalNumUnknowns << endl;
+    }
+    
     owned_map.push_back(Teuchos::rcp(new LA_Map(globalNumUnknowns, disc->dof_owned[set], 0, comm)));
     
     bool allocate_matrices = true;
