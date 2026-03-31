@@ -172,7 +172,9 @@ inline void validateRefMaxwellSettingsSection(const Teuchos::ParameterList & lis
 inline void validatePivotBlockSettingsSection(const Teuchos::ParameterList & list, const std::string & sectionName) {
   const char * keys[] = {
     "preconditioner type", "diag use lumped diagonal", "strict RefMaxwell", "debug RefMaxwell maps",
-    "hgrad basis name", "hcurl basis name"
+    "hgrad basis name", "hcurl basis name",
+    "use inner krylov", "inner krylov tolerance", "inner krylov max iters",
+    "inner krylov verbose", "inner krylov warn on failure"
   };
   const char * subkeys[] = {"AMG Settings", "RefMaxwell Settings", "ADS Settings"};
   validateAllowedKeys(list, sectionName,
@@ -194,7 +196,9 @@ inline void validateSchurBlockSettingsSection(const Teuchos::ParameterList & lis
     "preconditioner type", "approximation type", "pivot block",
     "diag use lumped pivot diagonal", "strict RefMaxwell", "debug RefMaxwell maps",
     "hgrad basis name", "hcurl basis name",
-    "smoother: type", "diag use lumped diagonal"
+    "smoother: type", "diag use lumped diagonal",
+    "use inner krylov", "inner krylov tolerance", "inner krylov max iters",
+    "inner krylov verbose", "inner krylov warn on failure"
   };
   const char * subkeys[] = {"smoother: params", "AMG Settings", "RefMaxwell Settings", "ADS Settings"};
   validateAllowedKeys(list, sectionName,

@@ -2,6 +2,7 @@
 #define MRHYDE_BLOCK_PREC_ASSEMBLY_HPP
 
 #include "block_prec/BlockOperators.hpp"
+#include "block_prec/InnerKrylovOperator.hpp"
 #include "block_prec/ParamUtils.hpp"
 #include "linearAlgebraInterface.hpp"
 #include "linearSolverContext.hpp"
@@ -489,6 +490,25 @@ void validateBackendSupport(const Teuchos::RCP<LinearSolverContext<Node> > & cnt
     "Block-triangular preconditioner requires 'block prec backend = teko_full'.");
 }
 
+/**
+ * Wraps a preconditioner with an inner Krylov solver (CG).
+ *
+ * Takes a block matrix and preconditioner, and wraps them in an InnerKrylovOperator
+ * that applies the preconditioner iteratively using CG instead of a single application.
+ *
+ * matrix is the block matrix (J00 for pivot or SchurApprox for Schur).
+ * prec is the base preconditioner (AMG, RefMaxwell, etc.).
+ * config holds inner Krylov solver options.
+ * Returns an operator that solves matrix*y=x using CG with prec.
+ */
+template<class Node>
+Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,Node> >
+wrapWithInnerKrylov(const Teuchos::RCP<const Tpetra::Operator<ScalarT,LO,GO,Node> > & matrix,
+                    const Teuchos::RCP<const Tpetra::Operator<ScalarT,LO,GO,Node> > & prec,
+                    const InnerKrylovConfig & config) {
+  return createInnerKrylovOperator<ScalarT,LO,GO,Node>(matrix, prec, config);
+}
+
 template<class Node>
 Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,Node> >
 buildOrReusePivotBlock(LinearAlgebraInterface<Node> & interface,
@@ -497,19 +517,34 @@ buildOrReusePivotBlock(LinearAlgebraInterface<Node> & interface,
                        Teuchos::ParameterList & mueluParams,
                        BlockPrecType pivotType) {
   using Types = BlockTypes<Node>;
+  using Operator = Tpetra::Operator<ScalarT,LO,GO,Node>;
+
+  // Build base preconditioner
+  Teuchos::RCP<Operator> basePrec;
   if (pivotType == BlockPrecType::RefMaxwell) {
     interface.validateRefMaxwellBlockInputs(J00, cntxt);
-    return interface.buildRefMaxwellPreconditioner(J00, cntxt, cntxt->pivot_block_sublist);
+    basePrec = interface.buildRefMaxwellPreconditioner(J00, cntxt, cntxt->pivot_block_sublist);
   }
-  if (pivotType == BlockPrecType::Direct) {
-    return buildDirectBlockInverse<Node>(J00);
+  else if (pivotType == BlockPrecType::Direct) {
+    basePrec = buildDirectBlockInverse<Node>(J00);
   }
-  if (pivotType == BlockPrecType::Diagonal) {
-    return buildDiagonalBlockInverse<Node>(J00, cntxt->schur.pivot_block_diag_use_lumped_diagonal,
+  else if (pivotType == BlockPrecType::Diagonal) {
+    basePrec = buildDiagonalBlockInverse<Node>(J00, cntxt->schur.pivot_block_diag_use_lumped_diagonal,
                                            interface.comm, interface.verbosity);
   }
-  return MueLu::CreateTpetraPreconditioner(
-    Teuchos::rcp_implicit_cast<typename Types::Operator>(J00), mueluParams);
+  else {
+    basePrec = MueLu::CreateTpetraPreconditioner(
+      Teuchos::rcp_implicit_cast<typename Types::Operator>(J00), mueluParams);
+  }
+
+  // Optionally wrap with inner Krylov solver
+  if (cntxt->pivot_inner_krylov.use_inner_krylov) {
+    Teuchos::RCP<const Operator> J00_const = Teuchos::rcp_implicit_cast<const Operator>(J00);
+    Teuchos::RCP<const Operator> basePrec_const = Teuchos::rcp_implicit_cast<const Operator>(basePrec);
+    return wrapWithInnerKrylov<Node>(J00_const, basePrec_const, cntxt->pivot_inner_krylov);
+  }
+
+  return basePrec;
 }
 
 template<class Node>
@@ -520,17 +555,33 @@ buildOrReuseSchurBlock(LinearAlgebraInterface<Node> & interface,
                        Teuchos::ParameterList & mueluParams,
                        BlockPrecType schurType) {
   using Types = BlockTypes<Node>;
+  using Operator = Tpetra::Operator<ScalarT,LO,GO,Node>;
+
   TEUCHOS_TEST_FOR_EXCEPTION(schurType == BlockPrecType::Diagonal, std::runtime_error,
     "Schur block does not support Diagonal.");
+
+  // Build base preconditioner
+  Teuchos::RCP<Operator> basePrec;
   if (schurType == BlockPrecType::RefMaxwell) {
     interface.validateRefMaxwellBlockInputs(schurApprox, cntxt);
-    return interface.buildRefMaxwellPreconditioner(schurApprox, cntxt, cntxt->schur_block_sublist, true);
+    basePrec = interface.buildRefMaxwellPreconditioner(schurApprox, cntxt, cntxt->schur_block_sublist, true);
   }
-  if (schurType == BlockPrecType::Direct) {
-    return buildDirectBlockInverse<Node>(schurApprox);
+  else if (schurType == BlockPrecType::Direct) {
+    basePrec = buildDirectBlockInverse<Node>(schurApprox);
   }
-  return MueLu::CreateTpetraPreconditioner(
-    Teuchos::rcp_implicit_cast<typename Types::Operator>(schurApprox), mueluParams);
+  else {
+    basePrec = MueLu::CreateTpetraPreconditioner(
+      Teuchos::rcp_implicit_cast<typename Types::Operator>(schurApprox), mueluParams);
+  }
+
+  // Optionally wrap with inner Krylov solver
+  if (cntxt->schur_inner_krylov.use_inner_krylov) {
+    Teuchos::RCP<const Operator> schurApprox_const = Teuchos::rcp_implicit_cast<const Operator>(schurApprox);
+    Teuchos::RCP<const Operator> basePrec_const = Teuchos::rcp_implicit_cast<const Operator>(basePrec);
+    return wrapWithInnerKrylov<Node>(schurApprox_const, basePrec_const, cntxt->schur_inner_krylov);
+  }
+
+  return basePrec;
 }
 
 template<class Node>

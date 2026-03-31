@@ -33,7 +33,7 @@
 
 namespace MrHyDE {
 
-/** \brief Schur approximation and block-triangular options (variant, damping, pivot block, strictness). */
+/** Schur approximation and block-triangular options (variant, damping, pivot block, strictness). */
 struct SchurConfig {
   /** Canonical Schur approximation family (currently base or diag). */
   std::string approximation_type;
@@ -50,7 +50,7 @@ struct SchurConfig {
   std::string schur_block_preconditioner_type;
 };
 
-/** \brief RefMaxwell auxiliary matrices and vectors (D0, M1, coords, nullspace) and debug/strict flags. */
+/** RefMaxwell auxiliary matrices and vectors (D0, M1, coords, nullspace) and debug/strict flags. */
 template<class Node>
 struct RefMaxwellData {
   typedef Tpetra::CrsMatrix<ScalarT,LO,GO,Node>   LA_CrsMatrix;
@@ -70,8 +70,7 @@ struct RefMaxwellData {
 };
 
 /**
- * \struct AMGData
- * \brief Configuration data for MueLu AMG (Algebraic MultiGrid) preconditioner.
+ * Configuration data for MueLu AMG (Algebraic MultiGrid) preconditioner.
  *
  * Stores AMG-specific configuration. If xml_param_file is non-empty, parameters are loaded from XML.
  */
@@ -79,8 +78,23 @@ struct AMGData {
   std::string xml_param_file = "";  /**< Path to XML parameter file for AMG configuration. If provided, XML is used. */
 };
 
-/** \class  LinearSolverContext
- *  \brief  Stores the specifications for a given linear solver.
+/**
+ * Configuration for wrapping block preconditioners with inner Krylov iterations.
+ *
+ * Allows each block solve in a block-triangular preconditioner to use an iterative
+ * solver (e.g., CG) instead of a single V-cycle application. This should improve
+ * convergence stability for ill-conditioned blocks.
+ */
+struct InnerKrylovConfig {
+  bool use_inner_krylov = false;      /**< Enable inner Krylov iterations for this block. */
+  double tolerance = 1.0e-3;          /**< Relative convergence tolerance for inner solver. */
+  int max_iterations = 10;            /**< Maximum inner iterations per block apply. */
+  bool verbose = false;               /**< Print inner iteration details. */
+  bool warn_on_failure = false;        /**< Warn if inner solve doesn't converge. */
+};
+
+/** \class LinearSolverContext
+ *  Stores the specifications for a given linear solver.
  *
  *  This class holds configuration options for Amesos2, Belos, and MueLu
  *  solvers and preconditioners. It also stores reusable solver components
@@ -99,15 +113,13 @@ class LinearSolverContext {
   typedef Teuchos::RCP<LA_CrsMatrix>              matrix_RCP;
   
 public:
-  /** \brief Default constructor. */
+  /** Default constructor. */
   LinearSolverContext() {};
   
-  /** \brief Destructor. */
+  /** Destructor. */
   ~LinearSolverContext() {};
   
-  /** \brief Construct options from a parameter list.
-   *  \param settings  Parameter list containing all solver settings.
-   */
+  /** Construct options from a parameter list; settings contains all solver settings. */
   LinearSolverContext(Teuchos::ParameterList & settings) {
     // Parse order is intentional: discover/validate sublists first, then root defaults,
     // then block-specific overrides, then strict-RefMaxwell inference.
@@ -156,6 +168,10 @@ public:
   AMGData amg;
   /**< RefMaxwell matrices/vectors (D0, M1, coords, nullspace) and debug/strict flags. */
   RefMaxwellData<Node> refMaxwell;
+  /**< Inner Krylov configuration for pivot block. */
+  InnerKrylovConfig pivot_inner_krylov;
+  /**< Inner Krylov configuration for Schur block. */
+  InnerKrylovConfig schur_inner_krylov;
 
   Teuchos::ParameterList prec_sublist, belos_sublist;
   Teuchos::ParameterList pivot_block_sublist, schur_block_sublist;
@@ -268,6 +284,22 @@ private:
       refMaxwell.strict_refmaxwell = pivot_block_sublist.get<bool>("strict RefMaxwell");
       strictRefMaxwellSetExplicitly = true;
     }
+    // Parse inner Krylov settings
+    if (pivot_block_sublist.isParameter("use inner krylov")) {
+      pivot_inner_krylov.use_inner_krylov = pivot_block_sublist.get<bool>("use inner krylov");
+    }
+    if (pivot_block_sublist.isParameter("inner krylov tolerance")) {
+      pivot_inner_krylov.tolerance = pivot_block_sublist.get<double>("inner krylov tolerance");
+    }
+    if (pivot_block_sublist.isParameter("inner krylov max iters")) {
+      pivot_inner_krylov.max_iterations = pivot_block_sublist.get<int>("inner krylov max iters");
+    }
+    if (pivot_block_sublist.isParameter("inner krylov verbose")) {
+      pivot_inner_krylov.verbose = pivot_block_sublist.get<bool>("inner krylov verbose");
+    }
+    if (pivot_block_sublist.isParameter("inner krylov warn on failure")) {
+      pivot_inner_krylov.warn_on_failure = pivot_block_sublist.get<bool>("inner krylov warn on failure");
+    }
     // Check for XML parameter file in AMG Settings
     if (pivot_block_sublist.isSublist("AMG Settings")) {
       Teuchos::ParameterList & amgSettings = pivot_block_sublist.sublist("AMG Settings");
@@ -309,6 +341,22 @@ private:
     if (schur_block_sublist.isParameter("strict RefMaxwell")) {
       refMaxwell.strict_refmaxwell = schur_block_sublist.get<bool>("strict RefMaxwell");
       strictRefMaxwellSetExplicitly = true;
+    }
+    // Parse inner Krylov settings
+    if (schur_block_sublist.isParameter("use inner krylov")) {
+      schur_inner_krylov.use_inner_krylov = schur_block_sublist.get<bool>("use inner krylov");
+    }
+    if (schur_block_sublist.isParameter("inner krylov tolerance")) {
+      schur_inner_krylov.tolerance = schur_block_sublist.get<double>("inner krylov tolerance");
+    }
+    if (schur_block_sublist.isParameter("inner krylov max iters")) {
+      schur_inner_krylov.max_iterations = schur_block_sublist.get<int>("inner krylov max iters");
+    }
+    if (schur_block_sublist.isParameter("inner krylov verbose")) {
+      schur_inner_krylov.verbose = schur_block_sublist.get<bool>("inner krylov verbose");
+    }
+    if (schur_block_sublist.isParameter("inner krylov warn on failure")) {
+      schur_inner_krylov.warn_on_failure = schur_block_sublist.get<bool>("inner krylov warn on failure");
     }
     // Check for XML parameter file in RefMaxwell Settings
     if (schur_block_sublist.isSublist("RefMaxwell Settings")) {
