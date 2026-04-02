@@ -323,8 +323,11 @@ namespace MrHyDE {
     Teuchos::RCP<Teuchos::ParameterList> settings;             // User-specified settings
     Teuchos::RCP<MrHyDE_Debugger> debugger;                    // Debugging utility
 
-    Teuchos::RCP<LA_MultiVector> diagParamMass;                // Diagonal mass matrix entries
-    matrix_RCP paramMass;                                      // Full mass matrix for parameter DOFs
+    // Tpetra M and approximate M^{-1} for ROL; built in buildMassOperators(), reused by getCurrentVector().
+    Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> massForwardOp;
+    Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> massInvOperator;
+
+    void buildMassOperators(Teuchos::RCP<LA_MultiVector> diagParamMass, matrix_RCP paramMass);
 
     Teuchos::RCP<Teuchos::Time> constructortimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::ParameterManager::constructor()");
     Teuchos::RCP<Teuchos::Time> updatetimer      = Teuchos::TimeMonitor::getNewCounter("MrHyDE::ParameterManager::updateParams()");

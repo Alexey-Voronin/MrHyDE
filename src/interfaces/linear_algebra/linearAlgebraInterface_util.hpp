@@ -376,7 +376,55 @@ Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > LinearAlgebraInterface<No
 template<class Node>
 Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > LinearAlgebraInterface<Node>::readStateVectorFromFile(const std::string & filename, const size_t & set) {
   Teuchos::TimeMonitor localtimer(*readfiletimer);
-  
+
   vector_RCP vec = Tpetra::MatrixMarket::Reader<LA_MultiVector>::readDenseFile(filename, comm, owned_map[set]);
   return vec;
+}
+
+// ========================================================================================
+// ========================================================================================
+
+template<class Node>
+Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> >
+LinearAlgebraInterface<Node>::extractLumpedDiagonal(const Teuchos::RCP<LA_CrsMatrix> & matrix,
+                                                     const bool use_lumped) {
+
+  auto diag = Teuchos::rcp(new LA_MultiVector(matrix->getRowMap(), 1));
+  diag->putScalar(0.0);
+  auto diag_data = diag->getLocalViewHost(Tpetra::Access::ReadWrite);
+  const auto numLocalRows = matrix->getLocalNumRows();
+
+  if (use_lumped) {
+    // Lumped diagonal: sum all entries in each row
+    for (size_t i = 0; i < numLocalRows; ++i) {
+      typename LA_CrsMatrix::local_inds_host_view_type indices;
+      typename LA_CrsMatrix::values_host_view_type values;
+      matrix->getLocalRowView(i, indices, values);
+
+      ScalarT rowSum = 0.0;
+      for (size_t j = 0; j < indices.extent(0); ++j) {
+        rowSum += values[j];
+      }
+      diag_data(i, 0) = rowSum;
+    }
+  }
+  else {
+    // diag entries only
+    for (size_t i = 0; i < numLocalRows; ++i) {
+      typename LA_CrsMatrix::local_inds_host_view_type indices;
+      typename LA_CrsMatrix::values_host_view_type values;
+      matrix->getLocalRowView(i, indices, values);
+
+      ScalarT diagVal = 0.0;
+      for (size_t j = 0; j < indices.extent(0); ++j) {
+        if (indices[j] == static_cast<LO>(i)) {
+          diagVal = values[j];
+          break;
+        }
+      }
+      diag_data(i, 0) = diagVal;
+    }
+  }
+
+  return diag;
 }

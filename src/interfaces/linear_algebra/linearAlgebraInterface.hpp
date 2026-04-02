@@ -476,9 +476,16 @@ public:
   void writeStateToFile(vector<vector_RCP> & soln, const std::string & filebase, const int & stepnum);
 
   vector_RCP readParameterVectorFromFile(const std::string & filename);
-  
+
   vector_RCP readStateVectorFromFile(const std::string & filename, const size_t & set);
-    
+
+  /**
+   * @brief Main diagonal or row-sum lumped diagonal of a CRS matrix.
+   * @param matrix       Sparse matrix.
+   * @param use_lumped  If true, row sums; if false, strict diagonal entries.
+   */
+  vector_RCP extractLumpedDiagonal(const Teuchos::RCP<LA_CrsMatrix> & matrix, const bool use_lumped);
+
   // ========================================================================================
   // Belos solver parameter list accessor
   // ========================================================================================

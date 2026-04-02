@@ -169,11 +169,118 @@ void ParameterManager<Node>::stashParams(){
 template<class Node>
 void ParameterManager<Node>::setParamMass(Teuchos::RCP<LA_MultiVector> diag,
                                           matrix_RCP mass) {
-  
-  paramMass = mass;
-  diagParamMass = diag;
-  
+
+  buildMassOperators(diag, mass);
+
 }
+
+template<class Node>
+void ParameterManager<Node>::buildMassOperators(Teuchos::RCP<LA_MultiVector> diagParamMass,
+                                                 matrix_RCP paramMass) {
+
+  using LA_Vector = Tpetra::Vector<ScalarT, LO, GO, SolverNode>;
+  using LA_CrsMatrix = Tpetra::CrsMatrix<ScalarT, LO, GO, SolverNode>;
+  using LA_MultiVector = Tpetra::MultiVector<ScalarT, LO, GO, SolverNode>;
+  using OperatorRCP = Teuchos::RCP<Tpetra::Operator<ScalarT, LO, GO, SolverNode>>;
+
+  std::string mass_type = "none";
+  if (settings->isSublist("Analysis")) {
+    auto& analysis_list = settings->sublist("Analysis");
+    if (analysis_list.isParameter("parameter mass matrix type")) {
+      mass_type = analysis_list.get<std::string>("parameter mass matrix type");
+    }
+  }
+
+  massForwardOp = Teuchos::null;
+  massInvOperator = Teuchos::null;
+
+  if (mass_type == "none" || mass_type == "default") {
+    return;
+  }
+
+  if (mass_type == "diagonal" || mass_type == "lumped") {
+    if (diagParamMass.is_null()) {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+        "ParameterManager::buildMassOperators: diagParamMass is null for mass_type='"
+        + mass_type + "'. Call setParamMass() before buildMassOperators().");
+    }
+
+    auto diag_vec = diagParamMass->getVectorNonConst(0);
+
+    auto inv_diag_vec = Teuchos::rcp(new LA_Vector(diagParamMass->getMap()));
+    inv_diag_vec->reciprocal(*diag_vec);
+    massForwardOp = Teuchos::rcp(new block_prec::DiagonalMultiplyOperator<SolverNode>(diag_vec));
+    massInvOperator = Teuchos::rcp(new block_prec::DiagonalInverseOperator<SolverNode>(inv_diag_vec));
+
+    return;
+  }
+
+  if (mass_type == "sparse_direct") {
+    if (paramMass.is_null()) {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+        "ParameterManager::buildMassOperators: paramMass is null for mass_type='sparse_direct'. "
+        "Call setParamMass() before buildMassOperators().");
+    }
+
+    massForwardOp = paramMass;
+
+    auto solver = Amesos2::create<LA_CrsMatrix, LA_MultiVector>("KLU2", paramMass);
+    solver->symbolicFactorization();
+    solver->numericFactorization();
+
+    massInvOperator = Teuchos::rcp(new block_prec::DirectSolveOperator<SolverNode>(
+      solver, paramMass->getRowMap()));
+
+    return;
+  }
+
+  if (mass_type == "sparse_iterative") {
+    if (paramMass.is_null()) {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+        "ParameterManager::buildMassOperators: paramMass is null for mass_type='sparse_iterative'. "
+        "Call setParamMass() before buildMassOperators().");
+    }
+
+    massForwardOp = paramMass;
+
+    std::string solver_type = "CG";
+    std::string prec_type = "diagonal";
+    int max_iters = 100;
+    double tol = 1e-8;
+
+    if (settings->isSublist("Analysis")) {
+      auto& analysis_list = settings->sublist("Analysis");
+      if (analysis_list.isParameter("mass matrix solver")) {
+        solver_type = analysis_list.get<std::string>("mass matrix solver");
+      }
+      if (analysis_list.isParameter("mass matrix preconditioner")) {
+        prec_type = analysis_list.get<std::string>("mass matrix preconditioner");
+      }
+      if (analysis_list.isParameter("mass matrix max iterations")) {
+        max_iters = analysis_list.get<int>("mass matrix max iterations");
+      }
+      if (analysis_list.isParameter("mass matrix tolerance")) {
+        tol = analysis_list.get<double>("mass matrix tolerance");
+      }
+    }
+
+    Teuchos::ParameterList belos_params;
+    belos_params.set("Maximum Iterations", max_iters);
+    belos_params.set("Convergence Tolerance", tol);
+    belos_params.set("Verbosity", Belos::Errors + Belos::Warnings);
+    belos_params.set("Output Style", Belos::Brief);
+
+    massInvOperator = Teuchos::rcp(new block_prec::IterativeSolveOperator<SolverNode>(
+      paramMass, solver_type, belos_params, prec_type));
+
+    return;
+  }
+
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+    "ParameterManager::buildMassOperators: Unknown mass_type='" + mass_type + "'. "
+    "Valid options: none, diagonal, lumped, sparse_direct, sparse_iterative.");
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////
 // After the setup phase, we can get rid of a few things
 /////////////////////////////////////////////////////////////////////////////////////////////

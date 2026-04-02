@@ -4,6 +4,10 @@
 #include "block_prec/BlockTypes.hpp"
 
 #include <Amesos2.hpp>
+#include <BelosLinearProblem.hpp>
+#include <BelosSolverFactory.hpp>
+#include <BelosTpetraAdapter.hpp>
+#include <Ifpack2_Factory.hpp>
 
 #include <algorithm>
 #include <initializer_list>
@@ -145,6 +149,57 @@ struct BlockDiagonalWorkspace {
 } // namespace detail
 
 /** Applies diag(M)^{-1} as a Tpetra::Operator (point-Jacobi or lumped inverse). */
+/** Wraps a diagonal vector as a Tpetra::Operator for forward diagonal scaling (M*x). */
+template<class Node>
+class DiagonalMultiplyOperator : public Tpetra::Operator<ScalarT, LO, GO, Node> {
+public:
+  using Types = BlockTypes<Node>;
+  using LA_Map = typename Types::Map;
+  using LA_MultiVector = typename Types::MultiVector;
+  using LA_Vector = typename Types::Vector;
+
+  explicit DiagonalMultiplyOperator(const Teuchos::RCP<LA_Vector> & diagIn)
+    : diag_(diagIn) {}
+
+  Teuchos::RCP<const LA_Map> getDomainMap() const override { return diag_->getMap(); }
+  Teuchos::RCP<const LA_Map> getRangeMap() const override { return diag_->getMap(); }
+  bool hasTransposeApply() const override { return true; }
+
+  void apply(const LA_MultiVector & X, LA_MultiVector & Y,
+             Teuchos::ETransp mode = Teuchos::NO_TRANS,
+             ScalarT alpha = Teuchos::ScalarTraits<ScalarT>::one(),
+             ScalarT beta = Teuchos::ScalarTraits<ScalarT>::zero()) const override {
+    TEUCHOS_TEST_FOR_EXCEPTION(mode != Teuchos::NO_TRANS &&
+                               mode != Teuchos::TRANS &&
+                               mode != Teuchos::CONJ_TRANS,
+      std::runtime_error,
+      "DiagonalMultiplyOperator only supports NO_TRANS, TRANS, or CONJ_TRANS.");
+    TEUCHOS_TEST_FOR_EXCEPTION(!X.getMap()->isSameAs(*diag_->getMap()) ||
+                               !Y.getMap()->isSameAs(*diag_->getMap()),
+      std::runtime_error,
+      "DiagonalMultiplyOperator map mismatch.");
+    const auto xView = X.getLocalViewHost(Tpetra::Access::ReadOnly);
+    auto yView = Y.getLocalViewHost(Tpetra::Access::ReadWrite);
+    const auto dView = diag_->getLocalViewHost(Tpetra::Access::ReadOnly);
+    const size_t nrows = static_cast<size_t>(X.getLocalLength());
+    const size_t nvec = static_cast<size_t>(X.getNumVectors());
+    const bool useConjugate = (mode == Teuchos::CONJ_TRANS);
+    for (size_t i = 0; i < nrows; ++i) {
+      ScalarT d = dView(i, 0);
+      if (useConjugate) {
+        d = Teuchos::ScalarTraits<ScalarT>::conjugate(d);
+      }
+      for (size_t j = 0; j < nvec; ++j) {
+        yView(i, j) = beta * yView(i, j) + alpha * d * xView(i, j);
+      }
+    }
+  }
+
+private:
+  Teuchos::RCP<LA_Vector> diag_;
+};
+
+/** Wraps a diagonal inverse vector as a Tpetra::Operator for diagonal scaling (M^{-1}*x). */
 template<class Node>
 class DiagonalInverseOperator : public Tpetra::Operator<ScalarT, LO, GO, Node> {
 public:
@@ -240,6 +295,142 @@ public:
 private:
   Teuchos::RCP<Solver> solver_;
   Teuchos::RCP<const LA_Map> map_;
+};
+
+// Belos approximate solve of A Y = X (e.g. M^{-1} for sparse mass).
+template<class Node>
+class IterativeSolveOperator : public Tpetra::Operator<ScalarT, LO, GO, Node> {
+public:
+  using Types = BlockTypes<Node>;
+  using LA_Map = typename Types::Map;
+  using LA_MultiVector = typename Types::MultiVector;
+  using LA_CrsMatrix = typename Types::CrsMatrix;
+  using LA_Operator = typename Types::Operator;
+  using BelosProblem = Belos::LinearProblem<ScalarT, LA_MultiVector, LA_Operator>;
+  using BelosSolver = Belos::SolverManager<ScalarT, LA_MultiVector, LA_Operator>;
+
+  IterativeSolveOperator(const Teuchos::RCP<LA_CrsMatrix> & A,
+                        const std::string& solver_type = "GMRES",
+                        const Teuchos::ParameterList& params = Teuchos::ParameterList(),
+                        const std::string& prec_type = "none")
+    : A_(A), solver_type_(solver_type), params_(params) {
+
+    if (!params_.isParameter("Maximum Iterations")) {
+      params_.set("Maximum Iterations", 100);
+    }
+    if (!params_.isParameter("Convergence Tolerance")) {
+      params_.set("Convergence Tolerance", 1e-8);
+    }
+    if (!params_.isParameter("Verbosity")) {
+      params_.set("Verbosity", Belos::Errors + Belos::Warnings);
+    }
+    if (!params_.isParameter("Output Style")) {
+      params_.set("Output Style", Belos::Brief);
+    }
+
+    problem_ = Teuchos::rcp(new BelosProblem());
+    problem_->setOperator(A_);
+
+    if (prec_type == "diagonal") {
+      Teuchos::ParameterList ifpack_params;
+      ifpack_params.set("relaxation: type", "Jacobi");
+      ifpack_params.set("relaxation: sweeps", 1);
+
+      prec_ = Ifpack2::Factory::create<LA_CrsMatrix>("RELAXATION", A_);
+      prec_->setParameters(ifpack_params);
+      prec_->initialize();
+      prec_->compute();
+
+      problem_->setLeftPrec(prec_);
+    }
+    else if (prec_type == "ilu") {
+      Teuchos::ParameterList ifpack_params;
+      ifpack_params.set("fact: iluk level-of-fill", 0);
+      ifpack_params.set("fact: absolute threshold", 0.0);
+      ifpack_params.set("fact: relative threshold", 1.0);
+
+      prec_ = Ifpack2::Factory::create<LA_CrsMatrix>("ILUT", A_);
+      prec_->setParameters(ifpack_params);
+      prec_->initialize();
+      prec_->compute();
+
+      problem_->setLeftPrec(prec_);
+    }
+    else if (prec_type == "none") {
+    }
+    else {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+        "IterativeSolveOperator: Unknown prec_type='" + prec_type + "'. "
+        "Valid options: none, diagonal, ilu.");
+    }
+
+    Belos::SolverFactory<ScalarT, LA_MultiVector, LA_Operator> factory;
+    solver_ = factory.create(solver_type_, Teuchos::rcpFromRef(params_));
+    solver_->setProblem(problem_);
+  }
+
+  Teuchos::RCP<const LA_Map> getDomainMap() const override {
+    return A_->getDomainMap();
+  }
+
+  Teuchos::RCP<const LA_Map> getRangeMap() const override {
+    return A_->getRangeMap();
+  }
+
+  bool hasTransposeApply() const override { return false; }
+
+  void apply(const LA_MultiVector& X, LA_MultiVector& Y,
+             Teuchos::ETransp mode = Teuchos::NO_TRANS,
+             ScalarT alpha = Teuchos::ScalarTraits<ScalarT>::one(),
+             ScalarT beta = Teuchos::ScalarTraits<ScalarT>::zero()) const override {
+
+    TEUCHOS_TEST_FOR_EXCEPTION(mode != Teuchos::NO_TRANS, std::runtime_error,
+      "IterativeSolveOperator: Only NO_TRANS mode supported for iterative solve");
+
+    const ScalarT zero = Teuchos::ScalarTraits<ScalarT>::zero();
+    const ScalarT one = Teuchos::ScalarTraits<ScalarT>::one();
+
+    if (beta == zero) {
+      Y.putScalar(0.0);
+    } else if (beta != one) {
+      Y.scale(beta);
+    }
+
+    Teuchos::RCP<LA_MultiVector> Z = Teuchos::rcp(new LA_MultiVector(X.getMap(), X.getNumVectors()));
+    Z->putScalar(0.0);
+
+    problem_->setProblem(Z, Teuchos::rcpFromRef(const_cast<LA_MultiVector&>(X)));
+
+    Belos::ReturnType result = solver_->solve();
+
+    if (result != Belos::Converged) {
+      std::cerr << "WARNING: IterativeSolveOperator did not converge! "
+                << "Achieved tolerance: " << solver_->achievedTol() << std::endl;
+    }
+
+    Y.update(alpha, *Z, one);
+  }
+
+  void setParameters(const Teuchos::ParameterList& params) {
+    params_ = params;
+    solver_->setParameters(Teuchos::rcpFromRef(params_));
+  }
+
+  int getNumIters() const {
+    return solver_->getNumIters();
+  }
+
+  ScalarT getAchievedTol() const {
+    return solver_->achievedTol();
+  }
+
+private:
+  Teuchos::RCP<LA_CrsMatrix> A_;
+  Teuchos::RCP<BelosSolver> solver_;
+  mutable Teuchos::RCP<BelosProblem> problem_;
+  std::string solver_type_;
+  Teuchos::ParameterList params_;
+  Teuchos::RCP<Ifpack2::Preconditioner<ScalarT, LO, GO, Node>> prec_;
 };
 
 /** Block-diagonal preconditioner: applies diag(M_0, M_1, ...) via import/apply/export per block. */

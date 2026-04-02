@@ -617,6 +617,9 @@ void AnalysisManager::ROL2Solve()
   // Generate data and get objective
   obj = Teuchos::rcp(new ROL::Objective_MILO<RealT>(solver_, postproc_, params_));
 
+  // Discretized mass must be assembled before OptVector so ParameterManager can build operators.
+  solver_->setupDiscretizedParamMass();
+
   MrHyDE_OptVector xtmp = params_->getCurrentVector();
 
   Teuchos::RCP<ROL::Vector<ScalarT>> x = xtmp.clone();
@@ -1865,10 +1868,23 @@ MrHyDE_OptVector AnalysisManager::recoverParametersFromFile() {
       field_params.push_back(vec);
     }
   }
-  
-  MrHyDE_OptVector newparams(field_params, scalar_params, 1.0, params_->diagParamMass, params_->paramMass, comm_->getRank());
+
+  std::string mass_type = "none";
+  if (settings_->isSublist("Analysis")) {
+    const auto& analysis_list = settings_->sublist("Analysis");
+    if (analysis_list.isParameter("parameter mass matrix type")) {
+      mass_type = analysis_list.get<std::string>("parameter mass matrix type");
+    }
+  }
+
+  MrHyDE_OptVector newparams(field_params, scalar_params, 1.0, mass_type, comm_->getRank());
+
+  if (!params_->massForwardOp.is_null() && !params_->massInvOperator.is_null()) {
+    newparams.setMassOperators(params_->massForwardOp, params_->massInvOperator);
+  }
+
   return newparams;
-  
+
 }
 
 // ========================================================================================

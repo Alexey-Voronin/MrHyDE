@@ -197,8 +197,9 @@ public:
    *
    * @param mass Reference-counted pointer to the parameter mass matrix.
    * @param massdiag Reference-counted pointer to the vector storing the diagonal of the mass matrix.
+   * @param mass_mode Type of mass matrix: "diagonal", "lumped" (row-sum), or "default" (use class setting).
    */
-  void getParamMass(matrix_RCP & mass, vector_RCP & massdiag);
+  void getParamMass(matrix_RCP & mass, vector_RCP & massdiag, const std::string & mass_mode = "default");
   
   /**
    * @brief Compute the weight vector for a given set.

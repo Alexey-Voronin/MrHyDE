@@ -79,6 +79,19 @@ struct AMGData {
   std::string xml_param_file = "";  /**< Path to XML parameter file for AMG configuration. If provided, XML is used. */
 };
 
+/**
+ * \struct MassMatrixConfig
+ * \brief ROL mass-matrix mode and optional Belos-related settings (reserved for future wiring).
+ */
+struct MassMatrixConfig {
+  std::string type;
+  bool use_iterative_inverse;
+  Teuchos::ParameterList solver_params;
+
+  MassMatrixConfig()
+    : type("none"), use_iterative_inverse(false) {}
+};
+
 /** \class  LinearSolverContext
  *  \brief  Stores the specifications for a given linear solver.
  *

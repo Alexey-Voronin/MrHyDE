@@ -287,25 +287,36 @@ void AssemblyManager<Node>::getWeightedMass(const size_t & set,
 
 template<class Node>
 void AssemblyManager<Node>::getParamMass(matrix_RCP & mass,
-                                         vector_RCP & diagMass) {
-  
+                                         vector_RCP & diagMass,
+                                         const std::string & mass_mode) {
+
   Teuchos::TimeMonitor localtimer(*set_init_timer);
-  
+
   using namespace std;
 
   debugger->print("**** Starting AssemblyManager::getParamMass ...");
-  
+
   typedef typename Node::execution_space LA_exec;
   bool use_atomics_ = false;
   if (LA_exec().concurrency() > 1) {
     use_atomics_ = true;
   }
+
+  // mass_mode "lumped" / "diagonal" overrides class lump_mass; otherwise lump_mass applies.
+  bool lump_mass_local = lump_mass;
+  if (mass_mode == "lumped") {
+    lump_mass_local = true;
+  }
+  else if (mass_mode == "diagonal") {
+    lump_mass_local = false;
+  }
+
   bool compute_matrix = true;
-  if (lump_mass || matrix_free) {
+  if (lump_mass_local || matrix_free) {
     compute_matrix = false;
   }
   bool use_jacobi = true;
-  if (lump_mass) {
+  if (lump_mass_local) {
     use_jacobi = false;
   }
   

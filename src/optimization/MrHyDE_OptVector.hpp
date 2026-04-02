@@ -38,15 +38,15 @@ private:
   mutable std::vector<ROL::Ptr<ROL::StdVector<ScalarT> > > dual_scalar_vec;
   mutable ROL::Ptr<MrHyDE_OptVector> dual_vec;
   mutable bool isDualInitialized;
-  
+
   mutable bool isDual;
   mutable ScalarT dualityScale;
-  mutable matrix_RCP paramMass;
-  mutable ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > diagParamMass;
-  mutable bool have_mass, have_mass_diag;
-  
-  ROL::Elementwise::Multiply<ScalarT> mult_;
-  ROL::Elementwise::Divide<ScalarT> div_;
+
+  // Optional Tpetra M and M^{-1} from setMassOperators(); mass_type comes from Analysis.
+  std::string mass_type = "none";
+  Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> massOperator = Teuchos::null;
+  Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> massInvOperator = Teuchos::null;
+  bool have_mass_operator = false;
   
   Teuchos::RCP<Teuchos::Time> constructortimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::OptVector::constructor()");
   Teuchos::RCP<Teuchos::Time> clonetimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::OptVector::clone()");
@@ -60,13 +60,12 @@ public:
   MrHyDE_OptVector(const std::vector<ROL::Ptr<Tpetra::MultiVector<ScalarT,LO,GO,SolverNode> > > & f_vec,
                    const std::vector<ROL::Ptr<std::vector<ScalarT> > > & s_vec,
                    const double & dt,
-                   const Teuchos::RCP<LA_MultiVector> diagMass,
-                   const matrix_RCP mass,
+                   const std::string & mass_type_in = "none",
                    const int mpirank_ = 0,
                    bool isdual = false,
                    ScalarT scale = 1.0)
-  : mpirank(mpirank_), dyn_dt(dt), isDualInitialized(false), isDual(isdual), dualityScale(scale), paramMass(mass) {
-    
+  : mpirank(mpirank_), dyn_dt(dt), isDualInitialized(false), isDual(isdual), dualityScale(scale), mass_type(mass_type_in) {
+
     Teuchos::TimeMonitor localtimer(*constructortimer);
 
     if (s_vec.size() == 0) {
@@ -85,7 +84,7 @@ public:
         have_dynamic_scalar = false;
       }
     }
-    
+
     have_field = true;
     if (f_vec.size() == 0) {
       have_field = false;
@@ -94,37 +93,22 @@ public:
       field_vec.push_back(ROL::makePtr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode>>(f_vec[k]));
       dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
     }
-    
+
     if (f_vec.size() > 1) {
       have_dynamic_field = true;
     }
     else {
       have_dynamic_field = false;
     }
-    
+
     if (have_scalar) {
       for (size_t k=0; k<s_vec.size(); ++k) {
         dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
       }
     }
-    
-    if (Teuchos::is_null(paramMass)) {
-      have_mass = false;
-    }
-    else {
-      have_mass = true;
-    }
-    if (Teuchos::is_null(diagMass)) {
-      have_mass_diag = false;
-    }
-    else {
-      have_mass_diag = true;
-      diagParamMass = ROL::makePtr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(diagMass);
-    }
-    
+
   }
     
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   MrHyDE_OptVector(const std::vector<ROL::Ptr<Tpetra::MultiVector<ScalarT,LO,GO,SolverNode> > > & f_vec,
@@ -175,15 +159,9 @@ public:
         dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
       }
     }
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   MrHyDE_OptVector(const std::vector<ROL::Ptr<Tpetra::MultiVector<ScalarT,LO,GO,SolverNode> > > & f_vec,
@@ -222,15 +200,9 @@ public:
     if (have_scalar) {
       dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
     }
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   MrHyDE_OptVector(const ROL::Ptr<Tpetra::MultiVector<ScalarT,LO,GO,SolverNode> > & f_vec,
@@ -272,15 +244,9 @@ public:
         dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
       }
     }
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   MrHyDE_OptVector(const ROL::Ptr<Tpetra::MultiVector<ScalarT,LO,GO,SolverNode> > & f_vec,
@@ -309,15 +275,9 @@ public:
     
     dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[0]->dual().clone()));
     dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   MrHyDE_OptVector(const std::vector<ROL::Ptr<Tpetra::MultiVector<ScalarT,LO,GO,SolverNode> > > & f_vec,
@@ -340,15 +300,9 @@ public:
     if (f_vec.size() > 1) {
       have_dynamic_field = true;
     }
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   MrHyDE_OptVector(const ROL::Ptr<std::vector<ScalarT> > & s_vec,
@@ -366,15 +320,9 @@ public:
     
     scalar_vec.push_back(ROL::makePtr<ROL::StdVector<ScalarT>>(s_vec));
     dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   MrHyDE_OptVector()
@@ -386,20 +334,13 @@ public:
     have_field = false;
     have_dynamic_scalar = false;
     have_dynamic_field = false;
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
-  
-  ///////////////////////////////////////////////////
-  
+
   ///////////////////////////////////////////////////
   // Constructors for cloning
   ///////////////////////////////////////////////////
-  
+
   MrHyDE_OptVector(const std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > > & f_vec,
                    const std::vector<ROL::Ptr<ROL::StdVector<ScalarT> > > & s_vec,
                    const double & dt,
@@ -439,77 +380,9 @@ public:
     for (size_t k=0; k<s_vec.size(); ++k) {
       dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
     }
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
   
-  ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
-
-  MrHyDE_OptVector(const std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > > & f_vec,
-                   const std::vector<ROL::Ptr<ROL::StdVector<ScalarT> > > & s_vec,
-                   const double & dt,
-                   const ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > diagMass,
-                   const matrix_RCP mass,
-                   const int mpirank_ = 0,
-                   bool isdual = false,
-                   ScalarT scale = 1.0)
-  : field_vec(f_vec), scalar_vec(s_vec), mpirank(mpirank_), dyn_dt(dt), isDualInitialized(false), isDual(isdual), dualityScale(scale) {
-    
-    Teuchos::TimeMonitor localtimer(*constructortimer);
-
-    have_scalar = true;
-    if (s_vec[0]->getVector()->size() == 0) {
-      have_scalar = false;
-    }
-    if (s_vec.size() > 1) {
-      have_dynamic_scalar = true;
-    }
-    else {
-      have_dynamic_scalar = false;
-    }
-    
-    have_field = true;
-    if (f_vec.size() == 0) {
-      have_field = false;
-    }
-    if (f_vec.size() > 1) {
-      have_dynamic_field = true;
-    }
-    else {
-      have_dynamic_field = false;
-    }
-    
-    for (size_t k=0; k<f_vec.size(); ++k) {
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
-    }
-    
-    for (size_t k=0; k<s_vec.size(); ++k) {
-      dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
-    }
-    
-    paramMass = mass;
-    diagParamMass = diagMass;
-    
-    if (Teuchos::is_null(paramMass)) {
-      have_mass = false;
-    }
-    else {
-      have_mass = true;
-    }
-    if (diagParamMass == ROL::nullPtr) {
-      have_mass_diag = false;
-    }
-    else {
-      have_mass_diag = true;
-    }
-  }
-  
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
 
   MrHyDE_OptVector(const std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > > & f_vec,
@@ -544,15 +417,9 @@ public:
       dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
     }
     dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
 
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
 
   MrHyDE_OptVector(const ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > & f_vec,
@@ -586,15 +453,9 @@ public:
     for (size_t k=0; k<s_vec.size(); ++k) {
       dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
     }
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
 
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
 
   MrHyDE_OptVector(const ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > & f_vec,
@@ -619,15 +480,9 @@ public:
     field_vec.push_back(f_vec);
     dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[0]->dual().clone()));
     dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   MrHyDE_OptVector(const std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > > & f_vec,
@@ -654,64 +509,11 @@ public:
     for (size_t k=0; k<f_vec.size(); ++k) {
       dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(f_vec[k]->dual().clone()));
     }
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
-  }
-  
-  ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
-  
-  MrHyDE_OptVector(const std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > > & f_vec,
-                   const double & dt,
-                   const ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > diagMass,
-                   const matrix_RCP mass,
-                   const int & mpirank_ = 0,
-                   bool isdual = false,
-                   ScalarT scale = 1.0)
-  : field_vec(f_vec), mpirank(mpirank_), dyn_dt(dt), isDualInitialized(false), isDual(isdual), dualityScale(scale) {
-    
-    Teuchos::TimeMonitor localtimer(*constructortimer);
 
-    have_scalar = false;
-    have_field = true;
-    scalar_vec.push_back(ROL::nullPtr);
-    
-    if (f_vec.size() > 1) {
-      have_dynamic_field = true;
-    }
-    else {
-      have_dynamic_field = false;
-    }
-    have_dynamic_scalar = false;
-    
-    for (size_t k=0; k<f_vec.size(); ++k) {
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(f_vec[k]->dual().clone()));
-    }
-    
-    paramMass = mass;
-    diagParamMass = diagMass;
-    
-    if (Teuchos::is_null(paramMass)) {
-      have_mass = false;
-    }
-    else {
-      have_mass = true;
-    }
-    if (diagParamMass == ROL::nullPtr) {
-      have_mass_diag = false;
-    }
-    else {
-      have_mass_diag = true;
-    }
   }
   
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
-  
+
   MrHyDE_OptVector(const ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > & f_vec,
                    const int & mpirank_ = 0,
                    bool isdual = false,
@@ -732,15 +534,9 @@ public:
     for (size_t k=0; k<field_vec.size(); ++k) {
       dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
     }
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   MrHyDE_OptVector(const ROL::Ptr<ROL::StdVector<ScalarT> > & s_vec,
@@ -758,15 +554,9 @@ public:
     have_dynamic_field = false;
     
     dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
+
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   MrHyDE_OptVector(const std::vector<ROL::Ptr<ROL::StdVector<ScalarT> > > & s_vec,
@@ -790,65 +580,12 @@ public:
       dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
     }
     
-    
-    paramMass = Teuchos::null;
-    diagParamMass = Teuchos::null;
-    have_mass = false;
-    have_mass_diag = false;
-    
-  }
-  
-  ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
-  
-  MrHyDE_OptVector(const std::vector<ROL::Ptr<ROL::StdVector<ScalarT> > > & s_vec,
-                   const double & dt,
-                   const ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > diagMass,
-                   const matrix_RCP mass,
-                   const int & mpirank_ = 0,
-                   bool isdual = false,
-                   ScalarT scale = 1.0)
-  : scalar_vec(s_vec), mpirank(mpirank_), dyn_dt(dt), isDualInitialized(false), isDual(isdual), dualityScale(scale) {
-    
-    Teuchos::TimeMonitor localtimer(*constructortimer);
 
-    have_scalar = true;
-    have_dynamic_scalar = false;
-    if (s_vec.size() > 1) {
-      have_dynamic_scalar = true;
-    }
-    have_field = false;
-    have_dynamic_field = false;
-    
-    for (size_t k=0; k<s_vec.size(); ++k) {
-      dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
-    }
-    
-    paramMass = mass;
-    diagParamMass = diagMass;
-    
-    if (Teuchos::is_null(paramMass)) {
-      have_mass = false;
-    }
-    else {
-      have_mass = true;
-    }
-    if (diagParamMass == ROL::nullPtr) {
-      have_mass_diag = false;
-    }
-    else {
-      have_mass_diag = true;
-    }
   }
   
-  ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
-  
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
 
   ScalarT getInnerProductScaling(const MrHyDE_OptVector &xs) const {
-    // Scaling logic based on primal/dual relationship
     if (!isDual && !xs.isDual) {
       return dualityScale; // primal-primal
     }
@@ -868,7 +605,7 @@ public:
     
     const MrHyDE_OptVector &xs = dynamic_cast<const MrHyDE_OptVector&>(x);
     if (field_vec.size() > 0) {
-      auto xs_f = xs.getField();
+      const auto& xs_f = xs.getField();
       for (size_t i=0; i<field_vec.size(); ++i) {
         if ( field_vec[i] != ROL::nullPtr ) {
           field_vec[i]->set(*(xs_f[i]));
@@ -877,7 +614,7 @@ public:
     }
     
     if (scalar_vec.size() > 0) {
-      auto xs_s = xs.getParameter();
+      const auto& xs_s = xs.getParameter();
       for (size_t i=0; i<scalar_vec.size(); ++i) {
         if ( scalar_vec[i] != ROL::nullPtr ) {
           scalar_vec[i]->set(*(xs_s[i]));
@@ -887,13 +624,12 @@ public:
   }
   
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   void plus( const ROL::Vector<ScalarT> &x ) {
     
     const MrHyDE_OptVector &xs = dynamic_cast<const MrHyDE_OptVector&>(x);
     if (field_vec.size() > 0) {
-      auto xs_f = xs.getField();
+      const auto& xs_f = xs.getField();
       for (size_t i=0; i<field_vec.size(); ++i) {
         if ( field_vec[i] != ROL::nullPtr ) {
           field_vec[i]->plus(*(xs_f[i]));
@@ -902,7 +638,7 @@ public:
     }
     
     if (scalar_vec.size() > 0) {
-      auto xs_s = xs.getParameter();
+      const auto& xs_s = xs.getParameter();
       for (size_t i=0; i<scalar_vec.size(); ++i) {
         if ( scalar_vec[i] != ROL::nullPtr ) {
           scalar_vec[i]->plus(*(xs_s[i]));
@@ -912,7 +648,6 @@ public:
     
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   void scale( const ScalarT alpha ) {
@@ -936,7 +671,6 @@ public:
   }
   
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   void zero() {
     
@@ -958,7 +692,6 @@ public:
     
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   void putScalar(const ScalarT & alpha) {
@@ -982,13 +715,12 @@ public:
   }
   
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   void axpy( const ScalarT alpha, const ROL::Vector<ScalarT> &x ) {
     
     const MrHyDE_OptVector &xs = dynamic_cast<const MrHyDE_OptVector&>(x);
     if (field_vec.size() > 0) {
-      auto xs_f = xs.getField();
+      const auto& xs_f = xs.getField();
       for (size_t i=0; i<field_vec.size(); ++i) {
         if ( field_vec[i] != ROL::nullPtr ) {
           field_vec[i]->axpy(alpha,*(xs_f[i]));
@@ -997,7 +729,7 @@ public:
     }
     
     if (scalar_vec.size() > 0) {
-      auto xs_s = xs.getParameter();
+      const auto& xs_s = xs.getParameter();
       for (size_t i=0; i<scalar_vec.size(); ++i) {
         if ( scalar_vec[i] != ROL::nullPtr ) {
           scalar_vec[i]->axpy(alpha,*(xs_s[i]));
@@ -1007,21 +739,30 @@ public:
     
   }
   
-  ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
-  
+  /**
+   * Compute mass-weighted inner product between two vectors
+   *
+   * Implements the inner product <x, y>_M where M is a mass matrix.
+   * The specific form depends on whether vectors are primal or dual:
+   *
+   * - Primal-Primal: <x, y>_M = x^T M y
+   * - Dual-Dual:     <x, y>_M = x^T M^{-1} y
+   * - Primal-Dual:   <x, y>   = x^T y (no scaling)
+   *
+   * input: x The other vector in the inner product
+   * output: Scalar value of <this, x>_M
+   *
+   */
   ScalarT dot( const ROL::Vector<ScalarT> &x ) const {
-    
+
     const MrHyDE_OptVector &xs = dynamic_cast<const MrHyDE_OptVector&>(x);
     ScalarT val(0);
     if (field_vec.size() > 0) {
-      auto xs_f = xs.getField();
-      
-      // Field have several options for scaling
+      const auto& xs_f = xs.getField();
+
       bool inverse_scaling = false;
       bool no_scaling = false;
       
-      // Change default if needed
       if (!isDual && !xs.isDual) {
         // no changes needed (primal-primal)
       }
@@ -1032,7 +773,6 @@ public:
         no_scaling = true; // (primal-dual or dual-primal)
       }
       
-      // Take scaled or non-scaled inner product
       if (no_scaling) {
         for (size_t i=0; i<field_vec.size(); ++i) {
           if ( field_vec[i] != ROL::nullPtr ) {
@@ -1041,32 +781,23 @@ public:
         }
       }
       else {
-        if (have_mass_diag) { // skips the linear solve
-          if (inverse_scaling) { // x^T inv(D) y
-            for (size_t i=0; i<field_vec.size(); ++i) {
-              if ( field_vec[i] != ROL::nullPtr ) {
-                auto xs_tmp = ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(xs_f[i]->clone());
-                xs_tmp->set(*xs_f[i]);
-                this->divide_scaling(xs_tmp);
-                val += field_vec[i]->dot(*xs_tmp);
-              }
-            }
+        if (have_mass_operator) {
+          if (inverse_scaling) {
+            TEUCHOS_TEST_FOR_EXCEPTION(massInvOperator.is_null(), std::runtime_error,
+                                       "MrHyDE_OptVector::dot: massInvOperator required for dual-dual inner product.");
+            applyMassOperatorAndDot(massInvOperator, xs, val);
           }
-          else { // x^T D y
-            for (size_t i=0; i<field_vec.size(); ++i) {
-              if ( field_vec[i] != ROL::nullPtr ) {
-                auto xs_tmp = ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(xs_f[i]->clone());
-                xs_tmp->set(*xs_f[i]);
-                this->multiply_scaling(xs_tmp);
-                val += field_vec[i]->dot(*xs_tmp);
-              }
-            }
+          else {
+            TEUCHOS_TEST_FOR_EXCEPTION(massOperator.is_null(), std::runtime_error,
+                                       "MrHyDE_OptVector::dot: massOperator required for primal-primal inner product.");
+            applyMassOperatorAndDot(massOperator, xs, val);
           }
-        }
-        else if (have_mass) { // implies a real mass matrix
-          
         }
         else {
+          TEUCHOS_TEST_FOR_EXCEPTION(!inverse_scaling && !have_field,
+              std::logic_error,
+              "MrHyDE_OptVector::dot: Fallback scaled-Euclidean path requires mass operators for "
+              "mixed discretizations. Call setMassOperators() to provide M and M^{-1}.");
           for (size_t i=0; i<field_vec.size(); ++i) {
             if ( field_vec[i] != ROL::nullPtr ) {
               val += field_vec[i]->dot(*(xs_f[i]));
@@ -1083,7 +814,7 @@ public:
     }
     
     if (scalar_vec.size() > 0) {
-      auto xs_s = xs.getParameter();
+      const auto& xs_s = xs.getParameter();
       for (size_t i=0; i<scalar_vec.size(); ++i) {
         if ( scalar_vec[i] != ROL::nullPtr ) {
           val += scalar_vec[i]->dot(*(xs_s[i]));
@@ -1093,16 +824,12 @@ public:
     
     return val;
   }
-  
-  ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
-  
+
   ScalarT norm() const {
     ScalarT val = this->dot(*this);
     return std::sqrt(val);
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   ROL::Ptr<ROL::Vector<ScalarT> > clone(void) const {
@@ -1116,15 +843,15 @@ public:
       for (size_t i=0; i<field_vec.size(); ++i) {
         fvecs.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[i]->clone()));
       }
-      clonevec = ROL::makePtr<MrHyDE_OptVector>(fvecs, dyn_dt, diagParamMass, paramMass, mpirank);
-      
+      clonevec = ROL::makePtr<MrHyDE_OptVector>(fvecs, dyn_dt, mpirank);
+
     }
     else if ( !have_field) {
       std::vector<ROL::Ptr<ROL::StdVector<ScalarT> > > svecs;
       for (size_t i=0; i<scalar_vec.size(); ++i) {
         svecs.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[i]->clone()));
       }
-      clonevec = ROL::makePtr<MrHyDE_OptVector>(svecs, dyn_dt, diagParamMass, paramMass, mpirank);
+      clonevec = ROL::makePtr<MrHyDE_OptVector>(svecs, dyn_dt, mpirank);
     }
     else {
       std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > > fvecs;
@@ -1135,27 +862,34 @@ public:
       for (size_t i=0; i<scalar_vec.size(); ++i) {
         svecs.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[i]->clone()));
       }
-      
-      clonevec = ROL::makePtr<MrHyDE_OptVector>(fvecs, svecs, dyn_dt, diagParamMass, paramMass, mpirank);
+
+      clonevec = ROL::makePtr<MrHyDE_OptVector>(fvecs, svecs, dyn_dt, mpirank);
     }
+
+    auto cloned = ROL::dynamicPtrCast<MrHyDE_OptVector>(clonevec);
+    propagateMassOperators(cloned);
+
     return clonevec;
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   const ROL::Vector<ScalarT> & dual(void) const {
     
     if ( !isDualInitialized ) {
       if ( !have_field) {
-        dual_vec = ROL::makePtr<MrHyDE_OptVector>(dual_scalar_vec, dyn_dt, diagParamMass, paramMass);
+        dual_vec = ROL::makePtr<MrHyDE_OptVector>(dual_scalar_vec, dyn_dt);
       }
       else if ( !have_scalar ) {
-        dual_vec = ROL::makePtr<MrHyDE_OptVector>(dual_field_vec, dyn_dt, diagParamMass, paramMass);
+        dual_vec = ROL::makePtr<MrHyDE_OptVector>(dual_field_vec, dyn_dt);
       }
       else {
-        dual_vec = ROL::makePtr<MrHyDE_OptVector>(dual_field_vec, dual_scalar_vec, dyn_dt, diagParamMass, paramMass);
+        dual_vec = ROL::makePtr<MrHyDE_OptVector>(dual_field_vec, dual_scalar_vec, dyn_dt);
       }
+
+      auto dual_optvec = ROL::dynamicPtrCast<MrHyDE_OptVector>(dual_vec);
+      propagateMassOperators(dual_optvec);
+
       isDualInitialized = true;
     }
     for (size_t i=0; i<field_vec.size(); ++i) {
@@ -1172,18 +906,17 @@ public:
   }
   
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   ScalarT apply(const ROL::Vector<ScalarT> &x) const {
     const MrHyDE_OptVector &xs = dynamic_cast<const MrHyDE_OptVector&>(x);
     ScalarT val(0);
-    auto xs_f = xs.getField();
+    const auto& xs_f = xs.getField();
     for (size_t i=0; i<field_vec.size(); ++i) {
       if ( field_vec[i] != ROL::nullPtr ) {
         val += field_vec[i]->apply(*(xs_f[i]));
       }
     }
-    auto xs_s = xs.getParameter();
+    const auto& xs_s = xs.getParameter();
     for (size_t i=0; i<scalar_vec.size(); ++i) {
       if ( scalar_vec[i] != ROL::nullPtr ) {
         val += scalar_vec[i]->apply(*(xs_s[i]));
@@ -1192,7 +925,6 @@ public:
     return val;
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   ROL::Ptr<ROL::Vector<ScalarT> > basis( const int i )  const {
@@ -1243,7 +975,6 @@ public:
   }
   
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   void applyUnary( const ROL::Elementwise::UnaryFunction<ScalarT> &f ) {
     for (size_t i=0; i<field_vec.size(); ++i) {
@@ -1259,40 +990,24 @@ public:
   }
   
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   void applyBinary( const ROL::Elementwise::BinaryFunction<ScalarT> &f, const ROL::Vector<ScalarT> &x ) {
     const MrHyDE_OptVector &xs = dynamic_cast<const MrHyDE_OptVector&>(x);
-    auto xs_f = xs.getField();
+    const auto& xs_f = xs.getField();
     for (size_t i=0; i<field_vec.size(); ++i) {
       if ( field_vec[i] != ROL::nullPtr ) {
         field_vec[i]->applyBinary(f,*(xs_f[i]));
       }
     }
     
-    auto xs_s = xs.getParameter();
+    const auto& xs_s = xs.getParameter();
     for (size_t i=0; i<scalar_vec.size(); ++i) {
       if ( scalar_vec[i] != ROL::nullPtr ) {
         scalar_vec[i]->applyBinary(f,*xs_s[i]);
       }
     }
   }
-  
-  ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
-  //  y <- y*x elementwise
-  void multiply_scaling( const ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > & y ) const {
-    y->applyBinary( mult_, *diagParamMass );
-  }
-  
-  ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
-  //  y <- y/x elementwise
-  void divide_scaling( const ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > & y ) const {
-    y->applyBinary( div_, *diagParamMass );
-  }
-  
-  ///////////////////////////////////////////////////
+
   ///////////////////////////////////////////////////
   
   ScalarT reduce( const ROL::Elementwise::ReductionOp<ScalarT> &r ) const {
@@ -1311,7 +1026,6 @@ public:
   }
   
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   int dimension() const {
     int dim(0);
@@ -1329,7 +1043,6 @@ public:
   }
   
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   void randomize(const ScalarT l = 0.0, const ScalarT u = 1.0) {
     for (size_t i=0; i<field_vec.size(); ++i) {
@@ -1344,7 +1057,6 @@ public:
     }
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   void print(std::ostream &outStream) const {
@@ -1364,7 +1076,6 @@ public:
     }
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   void print(string & filebase) const {
@@ -1397,32 +1108,28 @@ public:
   // Extra functions
   ///////////////////////////////////////////////////
   
-  std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT> > > getField(void) const {
+  const std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT> > >& getField(void) const {
     return field_vec;
   }
-  
+
   ///////////////////////////////////////////////////
+
+  const std::vector<ROL::Ptr<ROL::StdVector<ScalarT> > >& getParameter(void) const {
+    return scalar_vec;
+  }
+
   ///////////////////////////////////////////////////
-  
-  std::vector<ROL::Ptr<ROL::StdVector<ScalarT> > > getParameter(void) const {
+
+  std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT> > >& getField(void) {
+    return field_vec;
+  }
+
+  ///////////////////////////////////////////////////
+
+  std::vector<ROL::Ptr<ROL::StdVector<ScalarT> > >& getParameter(void) {
     return scalar_vec;
   }
   
-  ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
-  
-  std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT> > > getField(void) {
-    return field_vec;
-  }
-  
-  ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
-  
-  std::vector<ROL::Ptr<ROL::StdVector<ScalarT> > > getParameter(void) {
-    return scalar_vec;
-  }
-  
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
   
   void setField(const ROL::Vector<ScalarT>& vec) {
@@ -1434,7 +1141,6 @@ public:
   }
   
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   void setParameter(const ROL::Vector<ScalarT>& vec) {
     for (size_t i=0; i<scalar_vec.size(); ++i) {
@@ -1444,7 +1150,6 @@ public:
     }
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
 
   void setParameter(const std::vector<ROL::Vector<ScalarT> >& vec) {
@@ -1456,13 +1161,11 @@ public:
   }
 
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   bool haveDynamicField() {
     return have_dynamic_field;
   }
   
-  ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
 
   bool haveDynamicScalar() {
@@ -1470,19 +1173,77 @@ public:
   }
 
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   bool haveScalar() {
     return have_scalar;
   }
   
   ///////////////////////////////////////////////////
-  ///////////////////////////////////////////////////
   
   bool haveField() {
     return have_field;
   }
-  
+
+  // Sets Tpetra M and M^{-1}; clears cached dual so clones stay consistent.
+  void setMassOperators(const Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> & forward_op,
+                        const Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> & inverse_op) {
+    massOperator = forward_op;
+    massInvOperator = inverse_op;
+    have_mass_operator = !massOperator.is_null() || !massInvOperator.is_null();
+
+    isDualInitialized = false;
+  }
+
+  ///////////////////////////////////////////////////
+
+  std::string getMassType() const {
+    return mass_type;
+  }
+
+private:
+  void propagateMassOperators(ROL::Ptr<MrHyDE_OptVector> target) const {
+    if (have_mass_operator) {
+      target->setMassOperators(massOperator, massInvOperator);
+    }
+  }
+
+  // Apply op (M or M^{-1}) per field block and add <op x_this, xs> into val.
+  void applyMassOperatorAndDot(
+      const Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>>& op,
+      const MrHyDE_OptVector& xs,
+      ScalarT& val) const {
+
+    const auto& xs_f = xs.getField();
+
+    Teuchos::RCP<LA_MultiVector> result_tpetra;
+
+    for (size_t i=0; i<field_vec.size(); ++i) {
+      if ( field_vec[i] != ROL::nullPtr ) {
+        auto xs_rol = ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode>>(xs_f[i]);
+        auto xs_tpetra = xs_rol->getVector();
+
+        if (result_tpetra.is_null() ||
+            !result_tpetra->getMap()->isSameAs(*(xs_tpetra->getMap())) ||
+            result_tpetra->getNumVectors() != xs_tpetra->getNumVectors()) {
+          result_tpetra = Teuchos::rcp(new LA_MultiVector(xs_tpetra->getMap(),
+                                                           xs_tpetra->getNumVectors()));
+        }
+
+        op->apply(*xs_tpetra, *result_tpetra);
+
+        auto field_tpetra = field_vec[i]->getVector();
+        const size_t numVecs = field_tpetra->getNumVectors();
+        std::vector<ScalarT> dots(numVecs);
+        field_tpetra->dot(*result_tpetra, Teuchos::arrayViewFromVector(dots));
+        for (size_t j = 0; j < numVecs; ++j) {
+          val += dots[j];
+        }
+      }
+    }
+  }
+
+public:
+
   // ========================================================================================
   // Specialized PCG
   // ========================================================================================

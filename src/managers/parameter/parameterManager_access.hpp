@@ -2,9 +2,10 @@
  MrHyDE - a framework for solving Multi-resolution Hybridized
  Differential Equations and enabling beyond forward simulation for 
  large-scale multiphysics and multiscale systems.
- 
  Questions? Contact Tim Wildey (tmwilde@sandia.gov) 
 ************************************************************************/
+
+#include "linearAlgebraInterface_massmatrix.hpp"
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -166,7 +167,20 @@ MrHyDE_OptVector ParameterManager<Node>::getCurrentVector() {
     //}
   }
     
-  MrHyDE_OptVector newvec(new_disc_params, new_active_params, 1.0, diagParamMass, paramMass, Comm->getRank());
+  std::string mass_type = "none";
+  if (settings->isSublist("Analysis")) {
+    auto& analysis_list = settings->sublist("Analysis");
+    if (analysis_list.isParameter("parameter mass matrix type")) {
+      mass_type = analysis_list.get<std::string>("parameter mass matrix type");
+    }
+  }
+
+  MrHyDE_OptVector newvec(new_disc_params, new_active_params, 1.0, mass_type, Comm->getRank());
+
+  if (!massForwardOp.is_null() && !massInvOperator.is_null()) {
+    newvec.setMassOperators(massForwardOp, massInvOperator);
+  }
+
   return newvec;
 }
 

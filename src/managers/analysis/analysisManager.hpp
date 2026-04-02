@@ -21,6 +21,7 @@
 #include "postprocessManager.hpp"
 #include "parameterManager.hpp"
 #include "MrHyDE_Debugger.hpp"
+#include "block_prec/BlockOperators.hpp"
 
 namespace MrHyDE {
 
