@@ -66,10 +66,10 @@ ANONYMOUS:
           Radius Shrinking Rate (Positive rho): 2.50e-01
           Radius Growing Rate: 2.5
           Safeguard Size: 1.0e+01
-      Status Test: 
+      Status Test:
         Gradient Tolerance: 1.0e-6
         Use Relative Tolerances: true
         Constraint Tolerance: 1.0e-08
-        Step Tolerance: 1.0e-20
+        Step Tolerance: 1.0e-40
         Iteration Limit: 1000
 ...

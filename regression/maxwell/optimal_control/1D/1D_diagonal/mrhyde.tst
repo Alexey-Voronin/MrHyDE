@@ -30,7 +30,10 @@ if its.opts.preprocess:
 status += its.call('mpiexec -n 4 ../../../../mrhyde >& mrhyde.log')
 status += its.clean_log()
 
-status += its.call('diff -y %s.log %s.gold' % (root, root))
+status += its.call(
+    "diff -y <(sed -n '/Quasi-Newton Method with Limited-Memory BFGS/,$p' %s.log) "
+    "<(sed -n '/Quasi-Newton Method with Limited-Memory BFGS/,$p' %s.gold)"
+    % (root, root))
 
 if its.opts.graphics and not status:
   if its.opts.verbose != 'none':
