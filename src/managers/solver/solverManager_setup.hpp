@@ -530,7 +530,7 @@ template<class Node>
 void SolverManager<Node>::setupDiscretizedParamMass() {
 
   debugger->print("**** Starting SolverManager::setupDiscretizedParamMass()");
-  
+
   // Hard coding this to always assemble the matrix
   // Can relax this and allow matrix-free later
   bool compute_matrix = true;
@@ -572,11 +572,70 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
   if (compute_matrix) {
     linalg->fillComplete(paramMass);
   }
-  
+
   params->setParamMass(diagParamMass, paramMass);
-  
+
+  // Check if we need H(curl) preconditioning
+  bool need_hcurl = false;
+  std::string mass_type = "none";
+  if (settings->isSublist("Analysis")) {
+    auto& analysis_list = settings->sublist("Analysis");
+    if (analysis_list.isParameter("parameter gradient preconditioner type")) {
+      mass_type = analysis_list.get<std::string>("parameter gradient preconditioner type");
+    }
+  }
+
+  // Check if any discretized parameters are HCURL type
+  if (params->discretized_param_basis_types.size() > 0) {
+    for (size_t i = 0; i < params->discretized_param_basis_types.size(); ++i) {
+      if (params->discretized_param_basis_types[i].substr(0,5) == "HCURL" && mass_type != "none") {
+        need_hcurl = true;
+        break;
+      }
+    }
+  }
+
+  // Build stiffness matrix for H(curl) parameters
+  if (need_hcurl) {
+    debugger->print("**** Building H(curl) stiffness matrix for gradient preconditioning");
+
+    matrix_RCP paramStiffness = linalg->getNewParamMatrix();
+    matrix_RCP pstiff;
+
+    if (linalg->getHaveOverlapped()) {
+      pstiff = linalg->getNewOverlappedParamMatrix();
+    }
+    else {
+      pstiff = paramStiffness;
+    }
+
+    vector_RCP diagParamStiff = linalg->getNewParamVector();
+    vector_RCP diagParamStiff_over;
+    if (linalg->getHaveOverlapped()) {
+      diagParamStiff_over = linalg->getNewOverlappedParamVector();
+    }
+    else {
+      diagParamStiff_over = diagParamStiff;
+    }
+
+    // Get stiffness matrix from assembler
+    assembler->getParamStiffness(pstiff, diagParamStiff_over);
+
+    if (linalg->getHaveOverlapped()) {
+      linalg->exportParamVectorFromOverlapped(diagParamStiff, diagParamStiff_over);
+      linalg->exportParamMatrixFromOverlapped(paramStiffness, pstiff);
+    }
+
+    linalg->fillComplete(paramStiffness);
+
+    // Build combined H(curl) operators
+    params->buildHcurlOperators(paramMass, paramStiffness);
+
+    debugger->print("**** Finished building H(curl) operators");
+  }
+
   debugger->print("**** Finished SolverManager::setupDiscretizedParamMass()");
-  
+
 }
 
 //========================================================================

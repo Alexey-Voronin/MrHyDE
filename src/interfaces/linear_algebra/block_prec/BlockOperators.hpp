@@ -8,6 +8,9 @@
 #include <BelosSolverFactory.hpp>
 #include <BelosTpetraAdapter.hpp>
 #include <Ifpack2_Factory.hpp>
+#include <MueLu.hpp>
+#include <MueLu_TpetraOperator.hpp>
+#include <MueLu_CreateTpetraPreconditioner.hpp>
 
 #include <algorithm>
 #include <initializer_list>
@@ -312,8 +315,10 @@ public:
   IterativeSolveOperator(const Teuchos::RCP<LA_CrsMatrix> & A,
                         const std::string& solver_type = "GMRES",
                         const Teuchos::ParameterList& params = Teuchos::ParameterList(),
-                        const std::string& prec_type = "none")
-    : A_(A), solver_type_(solver_type), params_(params) {
+                        const std::string& prec_type = "none",
+                        const Teuchos::ParameterList& prec_params = Teuchos::ParameterList(),
+                        bool strict_convergence = false)
+    : A_(A), solver_type_(solver_type), params_(params), strict_convergence_(strict_convergence) {
 
     if (!params_.isParameter("Maximum Iterations")) {
       params_.set("Maximum Iterations", 100);
@@ -343,11 +348,16 @@ public:
 
       problem_->setLeftPrec(prec_);
     }
-    else if (prec_type == "ilu") {
+    else if (prec_type == "ilu" || prec_type == "ILU") {
       Teuchos::ParameterList ifpack_params;
-      ifpack_params.set("fact: iluk level-of-fill", 0);
-      ifpack_params.set("fact: absolute threshold", 0.0);
-      ifpack_params.set("fact: relative threshold", 1.0);
+      // Use provided parameters if available, otherwise use defaults
+      if (prec_params.isSublist("ILU settings")) {
+        ifpack_params = prec_params.sublist("ILU settings");
+      } else {
+        ifpack_params.set("fact: iluk level-of-fill", 1);  // ILU(1) by default
+        ifpack_params.set("fact: absolute threshold", 1.0e-10);
+        ifpack_params.set("fact: relative threshold", 1.0);
+      }
 
       prec_ = Ifpack2::Factory::create<LA_CrsMatrix>("ILUT", A_);
       prec_->setParameters(ifpack_params);
@@ -356,12 +366,39 @@ public:
 
       problem_->setLeftPrec(prec_);
     }
+    else if (prec_type == "amg" || prec_type == "AMG") {
+      // Create MueLu AMG preconditioner
+      Teuchos::ParameterList muelu_params;
+
+      // Use provided AMG settings if available, otherwise use defaults
+      if (prec_params.isSublist("AMG settings")) {
+        muelu_params = prec_params.sublist("AMG settings");
+      } else {
+        // Default AMG settings for symmetric positive definite systems
+        muelu_params.set("verbosity", "none");
+        muelu_params.set("multigrid algorithm", "sa");  // Smoothed aggregation
+        muelu_params.set("smoother: type", "CHEBYSHEV");
+        muelu_params.set("aggregation: type", "uncoupled");
+        muelu_params.set("coarse: type", "KLU2");
+        muelu_params.set("number of equations", 1);
+        muelu_params.set("max levels", 10);
+        muelu_params.set("coarse: max size", 500);
+        muelu_params.set("sa: damping factor", 1.33);
+        muelu_params.set("reuse: type", "none");
+      }
+
+      // Create the MueLu preconditioner
+      muelu_prec_ = MueLu::CreateTpetraPreconditioner<ScalarT, LO, GO, Node>(
+        Teuchos::rcp_implicit_cast<LA_Operator>(A_), muelu_params);
+
+      problem_->setLeftPrec(muelu_prec_);
+    }
     else if (prec_type == "none") {
     }
     else {
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
         "IterativeSolveOperator: Unknown prec_type='" + prec_type + "'. "
-        "Valid options: none, diagonal, ilu.");
+        "Valid options: none, diagonal, ilu, amg.");
     }
 
     Belos::SolverFactory<ScalarT, LA_MultiVector, LA_Operator> factory;
@@ -404,8 +441,16 @@ public:
     Belos::ReturnType result = solver_->solve();
 
     if (result != Belos::Converged) {
-      std::cerr << "WARNING: IterativeSolveOperator did not converge! "
-                << "Achieved tolerance: " << solver_->achievedTol() << std::endl;
+      std::string msg = "IterativeSolveOperator did not converge! "
+                        "Achieved tolerance: " + std::to_string(solver_->achievedTol()) +
+                        " after " + std::to_string(solver_->getNumIters()) + " iterations";
+
+      if (strict_convergence_) {
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+          "STRICT MODE: " + msg + ". Set 'mass matrix strict convergence: false' to continue with warnings.");
+      } else {
+        std::cerr << "WARNING: " << msg << std::endl;
+      }
     }
 
     Y.update(alpha, *Z, one);
@@ -431,6 +476,8 @@ private:
   std::string solver_type_;
   Teuchos::ParameterList params_;
   Teuchos::RCP<Ifpack2::Preconditioner<ScalarT, LO, GO, Node>> prec_;
+  Teuchos::RCP<LA_Operator> muelu_prec_;  // MueLu preconditioner (stored as Operator)
+  bool strict_convergence_;  // throw on solver failure
 };
 
 /** Block-diagonal preconditioner: applies diag(M_0, M_1, ...) via import/apply/export per block. */

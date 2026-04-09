@@ -2008,6 +2008,23 @@ CompressedView<View_Sc3> getWeightedMass(const int & block, const size_t & grp,
 CompressedView<View_Sc3> getParamMass(const int & block, const size_t & grp);
 
 /**
+ * @brief Compute parameter stiffness matrix (curl-curl) for HCURL discretizations.
+ *
+ * @param stiffness  Output stiffness matrix.
+ * @param diagStiff  Output diagonal of stiffness matrix.
+ */
+void getParamStiffness(matrix_RCP & stiffness, vector_RCP & diagStiff);
+
+/**
+ * @brief Compute local parameter stiffness matrix for a group.
+ *
+ * @param block  Block index.
+ * @param grp    Group index.
+ * @return Compressed parameter-stiffness matrix view.
+ */
+CompressedView<View_Sc3> getParamStiffness(const int & block, const size_t & grp);
+
+/**
  * @brief Retrieve face-based mass matrix entries.
  *
  * @param block   Block index.

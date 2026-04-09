@@ -598,6 +598,17 @@ void AnalysisManager::ROL2Solve()
   else
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error, "Error: MrHyDE could not find the ROL2 sublist in the input file!  Abort!");
 
+  // Route gradient preconditioning based on selected ROL2 algorithm:
+  // - Trust Region: precondition in Objective::precond() for CG metric consistency
+  // - Line Search / Quasi-Newton: precondition during gradient assembly
+  std::string stepType = ROLsettings.sublist("Step").get("Type", "Line Search");
+  if (stepType == "Trust Region") {
+    params_->gradientPrecondMode = ParameterManager<SolverNode>::GradientPrecondMode::InObjectivePrecond;
+  }
+  else {
+    params_->gradientPrecondMode = ParameterManager<SolverNode>::GradientPrecondMode::InGradientAssembly;
+  }
+
   // Turn off visualization while optimizing
   bool postproc_plot = postproc_->write_solution;
   postproc_->write_solution = false;
@@ -622,6 +633,7 @@ void AnalysisManager::ROL2Solve()
 
   MrHyDE_OptVector xtmp = params_->getCurrentVector();
 
+  // Preconditioning is applied during gradient assembly, not via dual-space machinery.
   Teuchos::RCP<ROL::Vector<ScalarT>> x = xtmp.clone();
   x->set(xtmp);
 

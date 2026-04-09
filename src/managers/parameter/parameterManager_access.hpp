@@ -167,19 +167,13 @@ MrHyDE_OptVector ParameterManager<Node>::getCurrentVector() {
     //}
   }
     
+  // OptVector uses Euclidean dot(); M^(-1) preconditioning is applied during gradient assembly.
   std::string mass_type = "none";
-  if (settings->isSublist("Analysis")) {
-    auto& analysis_list = settings->sublist("Analysis");
-    if (analysis_list.isParameter("parameter mass matrix type")) {
-      mass_type = analysis_list.get<std::string>("parameter mass matrix type");
-    }
-  }
 
   MrHyDE_OptVector newvec(new_disc_params, new_active_params, 1.0, mass_type, Comm->getRank());
+  newvec.setVerbosity(verbosity);
 
-  if (!massForwardOp.is_null() && !massInvOperator.is_null()) {
-    newvec.setMassOperators(massForwardOp, massInvOperator);
-  }
+  // Mass operators intentionally NOT set on OptVector; preconditioning is applied during gradient assembly.
 
   return newvec;
 }

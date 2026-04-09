@@ -18,6 +18,8 @@
 #include "discretizationInterface.hpp"
 #include "MrHyDE_OptVector.hpp"
 #include "MrHyDE_Debugger.hpp"
+#include "TpetraExt_MatrixMatrix.hpp"
+#include "parameterManager_solver_helpers.hpp"
 
 namespace MrHyDE {
   
@@ -183,6 +185,33 @@ namespace MrHyDE {
     void setParamMass(Teuchos::RCP<LA_MultiVector> diag,
                       matrix_RCP mass);
 
+    /** @brief Check if mass inverse operator is available for Sobolev gradient preconditioning. */
+    bool hasMassInverseOperator() const;
+
+    /** @brief Apply mass inverse operator for Sobolev gradient preconditioning.
+     *  Converts dual-space gradients (functionals) to primal-space Sobolev gradients. */
+    void applyMassInverse(const vector_RCP & in, vector_RCP & out) const;
+
+    /** @brief Check if H(curl) inverse operator is available for H(curl) gradient preconditioning. */
+    bool hasHcurlInverseOperator() const;
+
+    /** @brief Apply H(curl) inverse operator (M+K)^{-1} for H(curl) gradient preconditioning.
+     *  Converts dual-space gradients to H(curl) Sobolev gradients. */
+    void applyHcurlInverse(const vector_RCP & in, vector_RCP & out) const;
+
+    // This Controls where Sobolev/Riesz preconditioning is applied in the optimization path.
+    // It is needed because ROL algorithms consume preconditioning differently:
+    // - Line Search / L-BFGS does not call Objective::precond(), so we keep
+    //   preconditioning in gradient assembly to preserve current behavior.
+    // - Trust Region / TruncatedCG calls Objective::precond() every CG iteration,
+    //   so preconditioning is moved there for metric-consistent model terms.
+    // The mode is selected once in ROL2Solve() from Step Type and used by both
+    // PostprocessManager::computeSensitivities() and Objective_MILO::precond().
+    enum class GradientPrecondMode {
+      InGradientAssembly,
+      InObjectivePrecond
+    };
+
     /** @brief Releases stored memory and cleans up data structures. */
     void purgeMemory();
 
@@ -327,11 +356,17 @@ namespace MrHyDE {
     Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> massForwardOp;
     Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> massInvOperator;
 
+    // For H(curl) preconditioning: (M + K) and (M + K)^{-1}
+    Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> hcurlForwardOp;
+    Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> hcurlInvOperator;
+
     void buildMassOperators(Teuchos::RCP<LA_MultiVector> diagParamMass, matrix_RCP paramMass);
+    void buildHcurlOperators(matrix_RCP paramMass, matrix_RCP paramStiffness);
 
     Teuchos::RCP<Teuchos::Time> constructortimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::ParameterManager::constructor()");
     Teuchos::RCP<Teuchos::Time> updatetimer      = Teuchos::TimeMonitor::getNewCounter("MrHyDE::ParameterManager::updateParams()");
     Teuchos::RCP<Teuchos::Time> getcurrenttimer  = Teuchos::TimeMonitor::getNewCounter("MrHyDE::ParameterManager::getCurrentParams()");
+    GradientPrecondMode gradientPrecondMode = GradientPrecondMode::InGradientAssembly;
     
   };
   

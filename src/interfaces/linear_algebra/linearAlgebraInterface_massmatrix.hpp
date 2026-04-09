@@ -10,7 +10,7 @@ namespace MrHyDE {
 
 template<class Node> class LinearAlgebraInterface;
 
-// M and approximate M^{-1} as Tpetra::Operator wrappers for ROL (diagonal, lumped, sparse).
+// M and approximate M^{-1} as Tpetra::Operator wrappers for ROL (lumped, sparse).
 template<class Node>
 struct MassMatrixOperators {
   using OperatorRCP = Teuchos::RCP<Tpetra::Operator<ScalarT, LO, GO, Node>>;
@@ -20,7 +20,7 @@ struct MassMatrixOperators {
   std::string type;
 };
 
-// mass_type: none, default, diagonal, lumped, sparse_direct, sparse_iterative.
+// mass_type: none, default, lumped, sparse_direct, sparse_iterative.
 template<class Node>
 MassMatrixOperators<Node>
 buildMassMatrixOperators(LinearAlgebraInterface<Node> & linalg,
@@ -33,7 +33,6 @@ buildMassMatrixOperators(LinearAlgebraInterface<Node> & linalg,
   using LA_Vector = typename Types::Vector;
   using LA_MultiVector = typename Types::MultiVector;
   using LA_CrsMatrix = typename Types::CrsMatrix;
-  using OperatorRCP = typename MassMatrixOperators<Node>::OperatorRCP;
 
   MassMatrixOperators<Node> result;
   result.type = mass_type;
@@ -44,9 +43,9 @@ buildMassMatrixOperators(LinearAlgebraInterface<Node> & linalg,
     return result;
   }
 
-  if (mass_type == "diagonal" || mass_type == "lumped") {
+  if (mass_type == "lumped") {
     TEUCHOS_TEST_FOR_EXCEPTION(diagMass.is_null(), std::runtime_error,
-                               "buildMassMatrixOperators: diagMass required for diagonal/lumped type.");
+                               "buildMassMatrixOperators: diagMass required for lumped type.");
 
     auto diag_vec = diagMass->getVectorNonConst(0);
 
@@ -110,7 +109,7 @@ buildMassMatrixOperators(LinearAlgebraInterface<Node> & linalg,
 
   TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
                              "buildMassMatrixOperators: Unknown mass_type '" + mass_type + "'. "
-                             "Valid options: none, diagonal, lumped, sparse_direct, sparse_iterative.");
+                             "Valid options: none, lumped, sparse_direct, sparse_iterative.");
 
   return result; // unreachable
 }

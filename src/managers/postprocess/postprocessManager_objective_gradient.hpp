@@ -1630,13 +1630,16 @@ void PostprocessManager<Node>::computeSensitivities(vector<vector_RCP> &u,
     else {
       curr_grad = disc_grad[0]->getVector();
     }
-    
-    auto sens = this->computeDiscreteSensitivities(u, adjoint, current_time, tindex, deltat);
-    curr_grad->update(1.0, *sens, 1.0);
 
+    // Compute complete gradient before preconditioning.
+    // Step 1: Get raw adjoint-based gradient only.
+    auto sens = this->computeDiscreteSensitivities(u, adjoint, current_time, tindex, deltat);
+
+    // Step 2: Add regularization terms to form complete dual-space gradient
     vector_RCP sens_over = linalg->getNewOverlappedParamVector();
+    sens_over->doImport(*sens, *(linalg->param_importer), Tpetra::INSERT);
     auto sens_kv = sens_over->template getLocalView<LA_device>(Tpetra::Access::ReadWrite);
-    
+
     for (size_t i = 0; i < params->paramOwnedAndShared.size(); i++) {
       ScalarT cobj = 0.0;
       if ((int)(i + params->num_active_params) < obj_sens.size()) {
@@ -1644,10 +1647,33 @@ void PostprocessManager<Node>::computeSensitivities(vector<vector_RCP> &u,
       }
       sens_kv(i, 0) += cobj;
     }
-    
-    vector_RCP sensr = linalg->getNewParamVector();
-    linalg->exportParamVectorFromOverlapped(sensr, sens_over);
-    curr_grad->update(1.0, *sensr, 1.0);
+
+    vector_RCP complete_grad = linalg->getNewParamVector();
+    linalg->exportParamVectorFromOverlapped(complete_grad, sens_over);
+
+    // Step 3: Apply preconditioning to the COMPLETE gradient only when requested.
+    // Trust Region mode routes preconditioning through Objective::precond().
+    if (params->gradientPrecondMode == ParameterManager<Node>::GradientPrecondMode::InGradientAssembly) {
+      if (params->hasHcurlInverseOperator()) {
+        // H(curl) parameters: apply (M+K)^{-1} to complete gradient
+        vector_RCP gradient_prec = linalg->getNewParamVector();
+        params->applyHcurlInverse(complete_grad, gradient_prec);
+        curr_grad->update(1.0, *gradient_prec, 1.0);
+        debugger->print(1, "Applied H(curl) (M+K)^{-1} preconditioning to complete gradient");
+      } else if (params->hasMassInverseOperator()) {
+        // Standard parameters: apply M^{-1} to complete gradient
+        vector_RCP gradient_prec = linalg->getNewParamVector();
+        params->applyMassInverse(complete_grad, gradient_prec);
+        curr_grad->update(1.0, *gradient_prec, 1.0);
+        debugger->print(1, "Applied mass M^{-1} preconditioning to complete gradient");
+      } else {
+        // No preconditioning
+        curr_grad->update(1.0, *complete_grad, 1.0);
+      }
+    } else {
+      // Trust Region path: return the unpreconditioned dual-space gradient.
+      curr_grad->update(1.0, *complete_grad, 1.0);
+    }
 
   }
   //this->saveObjectiveGradientData(gradient);
@@ -1710,10 +1736,12 @@ PostprocessManager<Node>::computeDiscreteSensitivities(vector<vector_RCP> &u,
   }
   vector_RCP adj = linalg->getNewVector(set);
   adj->doExport(*(adjoint[set]), *(linalg->exporter[set]), Tpetra::REPLACE);
+  // param-state matrix is assembled with parameter rows and state columns,
+  // so this apply computes (dR/dp)^T * adjoint.
   J->apply(*adj, *gradient);
 
   debugger->print(1, "******** Finished PostprocessManager::computeDiscreteSensitivities ...");
-  
+
   return gradient;
 }
 

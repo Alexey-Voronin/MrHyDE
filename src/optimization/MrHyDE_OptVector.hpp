@@ -47,7 +47,14 @@ private:
   Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> massOperator = Teuchos::null;
   Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> massInvOperator = Teuchos::null;
   bool have_mass_operator = false;
-  
+
+  // Global flag to control whether to use proper dual space handling with Riesz maps
+  // When true: dual() applies (M+K) transformation, gradients should be unpreconditioned
+  // When false: dual() is identity, gradients should be preconditioned (legacy behavior)
+  // Note: Using mutable non-static to avoid template static member issues in header
+  mutable bool use_proper_dual_spaces = false;
+  mutable int verbosity = 0;
+
   Teuchos::RCP<Teuchos::Time> constructortimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::OptVector::constructor()");
   Teuchos::RCP<Teuchos::Time> clonetimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::OptVector::clone()");
   
@@ -868,6 +875,8 @@ public:
 
     auto cloned = ROL::dynamicPtrCast<MrHyDE_OptVector>(clonevec);
     propagateMassOperators(cloned);
+    cloned->isDual = this->isDual;
+    cloned->use_proper_dual_spaces = this->use_proper_dual_spaces;
 
     return clonevec;
   }
@@ -875,7 +884,7 @@ public:
   ///////////////////////////////////////////////////
   
   const ROL::Vector<ScalarT> & dual(void) const {
-    
+
     if ( !isDualInitialized ) {
       if ( !have_field) {
         dual_vec = ROL::makePtr<MrHyDE_OptVector>(dual_scalar_vec, dyn_dt);
@@ -890,47 +899,58 @@ public:
       auto dual_optvec = ROL::dynamicPtrCast<MrHyDE_OptVector>(dual_vec);
       propagateMassOperators(dual_optvec);
 
+      // CRITICAL: Set the dual flag to indicate this is in the dual space
+      dual_optvec->isDual = !this->isDual;
+
       isDualInitialized = true;
     }
-    for (size_t i=0; i<field_vec.size(); ++i) {
-      if ( field_vec[i] != ROL::nullPtr ) {
-        dual_field_vec[i]->set(field_vec[i]->dual());
+
+    // Riesz map: primal->dual applies (M+K), dual->primal applies (M+K)^{-1}.
+    // Falls back to identity when mass operators are unavailable.
+    if (use_proper_dual_spaces && have_mass_operator && !massOperator.is_null() && !massInvOperator.is_null()) {
+      auto & op = isDual ? massInvOperator : massOperator;
+      for (size_t i=0; i<field_vec.size(); ++i) {
+        if ( field_vec[i] != ROL::nullPtr ) {
+          op->apply(*(field_vec[i]->getVector()), *(dual_field_vec[i]->getVector()));
+        }
+      }
+    } else {
+      for (size_t i=0; i<field_vec.size(); ++i) {
+        if ( field_vec[i] != ROL::nullPtr ) {
+          dual_field_vec[i]->set(field_vec[i]->dual());
+        }
       }
     }
+
     for (size_t i=0; i<scalar_vec.size(); ++i) {
       if ( scalar_vec[i] != ROL::nullPtr ) {
         dual_scalar_vec[i]->set(scalar_vec[i]->dual());
       }
     }
+
     return *dual_vec;
   }
   
   ///////////////////////////////////////////////////
   
   ScalarT apply(const ROL::Vector<ScalarT> &x) const {
+    // Duality pairing <this, x> = dot(x.dual())
     const MrHyDE_OptVector &xs = dynamic_cast<const MrHyDE_OptVector&>(x);
-    ScalarT val(0);
-    const auto& xs_f = xs.getField();
-    for (size_t i=0; i<field_vec.size(); ++i) {
-      if ( field_vec[i] != ROL::nullPtr ) {
-        val += field_vec[i]->apply(*(xs_f[i]));
-      }
+
+    if (isDual != xs.isDual) {
+      // Different spaces (primal-dual): standard dot product suffices
+      return this->dot(xs);
+    } else {
+      // Same space: apply dual transformation for metric-aware pairing
+      return this->dot(xs.dual());
     }
-    const auto& xs_s = xs.getParameter();
-    for (size_t i=0; i<scalar_vec.size(); ++i) {
-      if ( scalar_vec[i] != ROL::nullPtr ) {
-        val += scalar_vec[i]->apply(*(xs_s[i]));
-      }
-    }
-    return val;
   }
   
   ///////////////////////////////////////////////////
   
   ROL::Ptr<ROL::Vector<ScalarT> > basis( const int i )  const {
     ROL::Ptr<ROL::Vector<ScalarT> > e;
-    std::cout << "Basis got called" << std::endl;
-    
+
     /*
      if ( field_vec != ROL::nullPtr && scalar_vec != ROL::nullPtr ) {
      int n1 = field_vec->dimension();
@@ -1174,13 +1194,13 @@ public:
 
   ///////////////////////////////////////////////////
   
-  bool haveScalar() {
+  bool haveScalar() const {
     return have_scalar;
   }
   
   ///////////////////////////////////////////////////
   
-  bool haveField() {
+  bool haveField() const {
     return have_field;
   }
 
@@ -1200,8 +1220,13 @@ public:
     return mass_type;
   }
 
+  void setVerbosity(int v) const {
+    verbosity = v;
+  }
+
 private:
   void propagateMassOperators(ROL::Ptr<MrHyDE_OptVector> target) const {
+    target->setVerbosity(verbosity);
     if (have_mass_operator) {
       target->setMassOperators(massOperator, massInvOperator);
     }
@@ -1325,10 +1350,27 @@ public:
       
       iter++;
     }
-    //if (verbosity >= 10 && Comm->getRank() == 0) {
+    if (mpirank == 0 && verbosity >= 6) {
       cout << " ******* PCG Convergence Information: " << endl;
       cout << " *******     Iter: " << iter << "   " << "rnorm = " << rnorm[0]/r0 << endl;
-    //}
+    }
+  }
+
+  // Method to control dual space behavior for this instance
+  void setProperDualSpaces(bool use_proper) const {
+    use_proper_dual_spaces = use_proper;
+    if (mpirank == 0 && verbosity >= 6) {
+      if (use_proper) {
+        std::cout << "MrHyDE_OptVector: Enabled proper dual space handling with Riesz maps" << std::endl;
+      } else {
+        std::cout << "MrHyDE_OptVector: Using legacy dual space behavior (identity transformation)" << std::endl;
+      }
+    }
+  }
+
+  // Method to set whether this vector is in the dual space
+  void setDualSpace(bool is_dual) const {
+    isDual = is_dual;
   }
 
 }; // class MrHyDE_OptVector

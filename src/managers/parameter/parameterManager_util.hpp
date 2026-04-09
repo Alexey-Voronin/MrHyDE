@@ -179,15 +179,33 @@ void ParameterManager<Node>::buildMassOperators(Teuchos::RCP<LA_MultiVector> dia
                                                  matrix_RCP paramMass) {
 
   using LA_Vector = Tpetra::Vector<ScalarT, LO, GO, SolverNode>;
-  using LA_CrsMatrix = Tpetra::CrsMatrix<ScalarT, LO, GO, SolverNode>;
-  using LA_MultiVector = Tpetra::MultiVector<ScalarT, LO, GO, SolverNode>;
-  using OperatorRCP = Teuchos::RCP<Tpetra::Operator<ScalarT, LO, GO, SolverNode>>;
 
   std::string mass_type = "none";
+  double diag_floor = 1.0e-14;
+  std::string safety_mode = "clamp";
+
   if (settings->isSublist("Analysis")) {
     auto& analysis_list = settings->sublist("Analysis");
-    if (analysis_list.isParameter("parameter mass matrix type")) {
+
+    // Primary name (new): "parameter gradient preconditioner type"
+    // Fallback (backward compatibility): "parameter mass matrix type"
+    if (analysis_list.isParameter("parameter gradient preconditioner type")) {
+      mass_type = analysis_list.get<std::string>("parameter gradient preconditioner type");
+    } else if (analysis_list.isParameter("parameter mass matrix type")) {
       mass_type = analysis_list.get<std::string>("parameter mass matrix type");
+      std::cout << "WARNING: 'parameter mass matrix type' is deprecated. "
+                << "Use 'parameter gradient preconditioner type' instead.\n"
+                << "The mass matrix is used for GRADIENT PRECONDITIONING ONLY, "
+                << "not for inner products in dot()." << std::endl;
+    }
+
+    // Parse diagonal safety configuration
+    diag_floor = analysis_list.get<double>("diagonal floor", 1.0e-14);
+    safety_mode = analysis_list.get<std::string>("diagonal safety mode", "clamp");
+
+    if (safety_mode != "clamp" && safety_mode != "error") {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+        "diagonal safety mode must be 'clamp' or 'error', got: " + safety_mode);
     }
   }
 
@@ -198,7 +216,7 @@ void ParameterManager<Node>::buildMassOperators(Teuchos::RCP<LA_MultiVector> dia
     return;
   }
 
-  if (mass_type == "diagonal" || mass_type == "lumped") {
+  if (mass_type == "lumped") {
     if (diagParamMass.is_null()) {
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
         "ParameterManager::buildMassOperators: diagParamMass is null for mass_type='"
@@ -207,8 +225,35 @@ void ParameterManager<Node>::buildMassOperators(Teuchos::RCP<LA_MultiVector> dia
 
     auto diag_vec = diagParamMass->getVectorNonConst(0);
 
+    // Apply diagonal safety before reciprocal
+    {
+      auto diag_view = diag_vec->getLocalViewHost(Tpetra::Access::ReadWrite);
+      bool has_small = false;
+
+      for (size_t i = 0; i < diag_view.extent(0); ++i) {
+        double val = diag_view(i, 0);
+        if (std::abs(val) < diag_floor) {
+          has_small = true;
+          if (safety_mode == "error") {
+            TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+              "Diagonal entry " + std::to_string(i) + " = " +
+              std::to_string(val) + " < floor " + std::to_string(diag_floor));
+          } else { // clamp mode
+            diag_view(i, 0) = (val >= 0) ? diag_floor : -diag_floor;
+          }
+        }
+      }
+
+      if (has_small && Comm->getRank() == 0 && verbosity >= 4) {
+        std::cout << "WARNING: Clamped small diagonal entries to +/- "
+                  << diag_floor << std::endl;
+      }
+    }
+
+    // Now safe to compute reciprocal
     auto inv_diag_vec = Teuchos::rcp(new LA_Vector(diagParamMass->getMap()));
     inv_diag_vec->reciprocal(*diag_vec);
+
     massForwardOp = Teuchos::rcp(new block_prec::DiagonalMultiplyOperator<SolverNode>(diag_vec));
     massInvOperator = Teuchos::rcp(new block_prec::DiagonalInverseOperator<SolverNode>(inv_diag_vec));
 
@@ -224,12 +269,12 @@ void ParameterManager<Node>::buildMassOperators(Teuchos::RCP<LA_MultiVector> dia
 
     massForwardOp = paramMass;
 
-    auto solver = Amesos2::create<LA_CrsMatrix, LA_MultiVector>("KLU2", paramMass);
-    solver->symbolicFactorization();
-    solver->numericFactorization();
+    // Extract configuration and build operator using helpers
+    auto config = ParameterManager_detail::extractDirectSolverConfig(
+        settings, Comm, verbosity, "mass matrix");
 
-    massInvOperator = Teuchos::rcp(new block_prec::DirectSolveOperator<SolverNode>(
-      solver, paramMass->getRowMap()));
+    massInvOperator = ParameterManager_detail::buildSparseDirectOperator<SolverNode>(
+        paramMass, config, settings, Comm, verbosity, "mass matrix");
 
     return;
   }
@@ -243,42 +288,201 @@ void ParameterManager<Node>::buildMassOperators(Teuchos::RCP<LA_MultiVector> dia
 
     massForwardOp = paramMass;
 
-    std::string solver_type = "CG";
-    std::string prec_type = "diagonal";
-    int max_iters = 100;
-    double tol = 1e-8;
+    // Extract configuration and build operator using helpers
+    auto config = ParameterManager_detail::extractIterativeSolverConfig(
+        settings, Comm, verbosity, "mass matrix");
 
-    if (settings->isSublist("Analysis")) {
-      auto& analysis_list = settings->sublist("Analysis");
-      if (analysis_list.isParameter("mass matrix solver")) {
-        solver_type = analysis_list.get<std::string>("mass matrix solver");
-      }
-      if (analysis_list.isParameter("mass matrix preconditioner")) {
-        prec_type = analysis_list.get<std::string>("mass matrix preconditioner");
-      }
-      if (analysis_list.isParameter("mass matrix max iterations")) {
-        max_iters = analysis_list.get<int>("mass matrix max iterations");
-      }
-      if (analysis_list.isParameter("mass matrix tolerance")) {
-        tol = analysis_list.get<double>("mass matrix tolerance");
-      }
-    }
-
-    Teuchos::ParameterList belos_params;
-    belos_params.set("Maximum Iterations", max_iters);
-    belos_params.set("Convergence Tolerance", tol);
-    belos_params.set("Verbosity", Belos::Errors + Belos::Warnings);
-    belos_params.set("Output Style", Belos::Brief);
-
-    massInvOperator = Teuchos::rcp(new block_prec::IterativeSolveOperator<SolverNode>(
-      paramMass, solver_type, belos_params, prec_type));
+    massInvOperator = ParameterManager_detail::buildSparseIterativeOperator<SolverNode>(
+        paramMass, config, Comm, verbosity, "mass matrix");
 
     return;
   }
 
   TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
     "ParameterManager::buildMassOperators: Unknown mass_type='" + mass_type + "'. "
-    "Valid options: none, diagonal, lumped, sparse_direct, sparse_iterative.");
+    "Valid options: none, lumped, sparse_direct, sparse_iterative.");
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// Check if mass inverse operator is available for Sobolev gradient preconditioning
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+template<class Node>
+bool ParameterManager<Node>::hasMassInverseOperator() const {
+  return !massInvOperator.is_null();
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// Apply mass inverse operator for Sobolev gradient preconditioning
+// This converts dual-space gradients (functionals) to primal-space Sobolev gradients
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+template<class Node>
+void ParameterManager<Node>::applyMassInverse(const vector_RCP & in, vector_RCP & out) const {
+  TEUCHOS_TEST_FOR_EXCEPTION(massInvOperator.is_null(), std::runtime_error,
+    "ParameterManager::applyMassInverse: massInvOperator is null. "
+    "Enable with 'parameter gradient preconditioner type' in Analysis settings.");
+
+  massInvOperator->apply(*in, *out);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// Build H(curl) operators: (M + K) and (M + K)^{-1}
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+template<class Node>
+void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RCP paramStiffness) {
+
+  using LA_CrsMatrix = Tpetra::CrsMatrix<ScalarT, LO, GO, SolverNode>;
+  using LA_Vector = Tpetra::Vector<ScalarT, LO, GO, SolverNode>;
+
+  // Parse diagonal safety configuration from settings
+  double diag_floor = 1.0e-14;
+  std::string safety_mode = "clamp";
+
+  if (settings->isSublist("Analysis")) {
+    auto& analysis_list = settings->sublist("Analysis");
+    diag_floor = analysis_list.get<double>("diagonal floor", 1.0e-14);
+    safety_mode = analysis_list.get<std::string>("diagonal safety mode", "clamp");
+  }
+
+  // Check parameters
+  if (paramMass.is_null() || paramStiffness.is_null()) {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+      "ParameterManager::buildHcurlOperators: Both mass and stiffness matrices are required");
+  }
+
+  // Build weighted (alpha1*M + alpha2*K) matrix for H(curl) Riesz map.
+  // Weights default to 1.0 but can be overridden from Analysis.
+  ScalarT alpha1 = 1.0;
+  ScalarT alpha2 = 1.0;
+
+  // Try to read weights from regularization sublists
+  if (settings->isSublist("Postprocess")) {
+    auto& postproc_list = settings->sublist("Postprocess");
+    if (postproc_list.isSublist("Objective functions")) {
+      auto& obj_list = postproc_list.sublist("Objective functions");
+      if (obj_list.isSublist("RegObj")) {
+        auto& regobj_list = obj_list.sublist("RegObj");
+        if (regobj_list.isSublist("Regularization functions")) {
+          auto& reg_list = regobj_list.sublist("Regularization functions");
+          if (reg_list.isSublist("l2reg")) {
+            alpha1 = reg_list.sublist("l2reg").get<ScalarT>("weight", 1.0);
+          }
+          if (reg_list.isSublist("curlreg")) {
+            alpha2 = reg_list.sublist("curlreg").get<ScalarT>("weight", 1.0);
+          }
+        }
+      }
+    }
+  }
+
+  // Allow direct override from Analysis section
+  if (settings->isSublist("Analysis")) {
+    auto& analysis_list = settings->sublist("Analysis");
+    alpha1 = analysis_list.get<ScalarT>("hcurl alpha1", alpha1);
+    alpha2 = analysis_list.get<ScalarT>("hcurl alpha2", alpha2);
+  }
+
+  if (Comm->getRank() == 0 && verbosity >= 5) {
+    std::cout << "Building H(curl) operator: (" << alpha1 << "*M + " << alpha2 << "*K)" << std::endl;
+  }
+
+  // Create a new empty matrix with the same graph structure
+  auto hcurlMatrix = Teuchos::rcp(new LA_CrsMatrix(paramMass->getRowMap(),
+                                                     paramMass->getGlobalMaxNumRowEntries()));
+
+  // Use Tpetra's matrix addition: C = alpha1*M + alpha2*K
+  // Note: both paramMass and paramStiffness must be fillComplete'd
+  Tpetra::MatrixMatrix::Add(*paramMass, false, alpha1, *paramStiffness, false, alpha2, hcurlMatrix);
+
+  // MatrixMatrix::Add does not call fillComplete, so we need to do it
+  hcurlMatrix->fillComplete(paramMass->getDomainMap(), paramMass->getRangeMap());
+  hcurlForwardOp = hcurlMatrix;
+
+  std::string mass_type = "none";
+  if (settings->isSublist("Analysis")) {
+    auto& analysis_list = settings->sublist("Analysis");
+    if (analysis_list.isParameter("parameter gradient preconditioner type")) {
+      mass_type = analysis_list.get<std::string>("parameter gradient preconditioner type");
+    }
+  }
+
+  if (mass_type == "sparse_iterative") {
+    auto config = ParameterManager_detail::extractIterativeSolverConfig(
+        settings, Comm, verbosity, "mass matrix");
+
+    hcurlInvOperator = ParameterManager_detail::buildSparseIterativeOperator<SolverNode>(
+        hcurlMatrix, config, Comm, verbosity, "H(curl) matrix");
+  }
+  else if (mass_type == "sparse_direct") {
+    auto config = ParameterManager_detail::extractDirectSolverConfig(
+        settings, Comm, verbosity, "mass matrix");
+
+    hcurlInvOperator = ParameterManager_detail::buildSparseDirectOperator<SolverNode>(
+        hcurlMatrix, config, settings, Comm, verbosity, "H(curl) matrix");
+  }
+  else if (mass_type == "lumped") {
+    auto lumped_diag_vec = Teuchos::rcp(new LA_Vector(hcurlMatrix->getRowMap()));
+    auto ones = Teuchos::rcp(new LA_Vector(hcurlMatrix->getDomainMap()));
+    ones->putScalar(1.0);
+
+    // row sums
+    hcurlMatrix->apply(*ones, *lumped_diag_vec);
+
+    // check for zeros before inverting..
+    {
+      auto diag_view = lumped_diag_vec->getLocalViewHost(Tpetra::Access::ReadWrite);
+      bool has_small = false;
+
+      for (size_t i = 0; i < diag_view.extent(0); ++i) {
+        double val = diag_view(i, 0);
+        if (std::abs(val) < diag_floor) {
+          has_small = true;
+          if (safety_mode == "error") {
+            TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+              "H(curl) lumped diagonal entry " + std::to_string(i) + " = " +
+              std::to_string(val) + " < floor " + std::to_string(diag_floor));
+          } else { // clamp mode
+            diag_view(i, 0) = (val >= 0) ? diag_floor : -diag_floor;
+          }
+        }
+      }
+
+      if (has_small && Comm->getRank() == 0 && verbosity >= 4) {
+        std::cout << "WARNING: Clamped small H(curl) lumped diagonal entries to +/- "
+                  << diag_floor << std::endl;
+      }
+    }
+
+    hcurlInvOperator = Teuchos::rcp(new block_prec::DiagonalInverseOperator<SolverNode>(lumped_diag_vec));
+  }
+  else {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+      "ParameterManager::buildHcurlOperators: Unsupported solver type for H(curl): " + mass_type);
+  }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// Check if H(curl) inverse operator is available
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+template<class Node>
+bool ParameterManager<Node>::hasHcurlInverseOperator() const {
+  return !hcurlInvOperator.is_null();
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// Apply H(curl) inverse operator: (M + K)^{-1}
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+template<class Node>
+void ParameterManager<Node>::applyHcurlInverse(const vector_RCP & in, vector_RCP & out) const {
+  TEUCHOS_TEST_FOR_EXCEPTION(hcurlInvOperator.is_null(), std::runtime_error,
+    "ParameterManager::applyHcurlInverse: hcurlInvOperator is null. "
+    "Call buildHcurlOperators() first.");
+
+  hcurlInvOperator->apply(*in, *out);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -287,5 +491,5 @@ void ParameterManager<Node>::buildMassOperators(Teuchos::RCP<LA_MultiVector> dia
 
 template<class Node>
 void ParameterManager<Node>::purgeMemory() {
-  // nothing here  
+  // nothing here
 }

@@ -685,6 +685,9 @@ public:
   std::string exodus_filename, cellfield_reduction; ///< Exodus output filename and reduction strategy.
   
   int dimension; ///< Spatial dimension.
+
+  // Cached workspace for Sobolev gradient preconditioning
+  mutable vector_RCP cached_raw_gradient; ///< Workspace for raw gradient before M^(-1) application
   int numNodesPerElem; ///< Number of nodes per element.
   int numCells; ///< Number of domain cells.
   size_t numBlocks; ///< Number of mesh blocks.

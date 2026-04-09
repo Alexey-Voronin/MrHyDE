@@ -101,6 +101,10 @@ namespace ROL
       }
       MrHyDE_OptVector sens =
           Teuchos::dyn_cast<MrHyDE_OptVector>(const_cast<Vector<Real> &>(g));
+
+      // important! mark the gradient as dual space vectors
+      sens.setDualSpace(true);
+
       sens.zero();
       solver->adjointModel(sens);
     }

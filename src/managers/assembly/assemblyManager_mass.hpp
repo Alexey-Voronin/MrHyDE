@@ -1075,6 +1075,248 @@ CompressedView<View_Sc3> AssemblyManager<Node>::getParamMass(const int & block, 
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
+// Get a local parameter stiffness matrix (curl-curl) for HCURL discretizations
+///////////////////////////////////////////////////////////////////////////////////////
+
+template<class Node>
+CompressedView<View_Sc3> AssemblyManager<Node>::getParamStiffness(const int & block, const size_t & grp) {
+
+  auto numDOF = groupData[block]->num_param_dof;
+
+  View_Sc3 stiffness_view("local stiffness", groups[block][grp]->numElem,
+                          groups[block][grp]->paramLIDs.extent(1),
+                          groups[block][grp]->paramLIDs.extent(1));
+  CompressedView<View_Sc3> stiffness;
+
+  auto cwts = groups[block][grp]->wts;
+  auto offsets = wkset[block]->paramoffsets;
+  vector<CompressedView<View_Sc4>> tbasis_curl;
+  stiffness = CompressedView<View_Sc3>(stiffness_view);
+
+  // Get curl of basis functions
+  vector<View_Sc4> tbasis, tbasis_grad, ttbasis_curl, tbasis_nodes;
+  vector<View_Sc3> tbasis_div;
+  if (groups[block][grp]->storeAll || groupData[block]->use_basis_database) {
+    // Use stored curl basis if available
+    tbasis_curl = groups[block][grp]->basis_curl;
+  }
+  else {
+    disc->getPhysicalVolumetricBasis(groupData[block], groups[block][grp]->localElemID,
+                                      tbasis, tbasis_grad, ttbasis_curl, tbasis_div, tbasis_nodes);
+    for (size_t i=0; i<ttbasis_curl.size(); ++i) {
+      tbasis_curl.push_back(CompressedView<View_Sc4>(ttbasis_curl[i]));
+    }
+  }
+
+  for (size_type n=0; n<numDOF.extent(0); n++) {
+    string btype = wkset[block]->basis_types[wkset[block]->paramusebasis[n]];
+    auto off = subview(offsets,n,ALL());
+
+    if (btype.substr(0,5) == "HCURL") {
+      // Only compute stiffness for HCURL bases
+      auto cbasis_curl = tbasis_curl[wkset[block]->paramusebasis[n]];
+
+      parallel_for("Group get stiffness",
+                   RangePolicy<AssemblyExec>(0,stiffness.extent(0)),
+                   MRHYDE_LAMBDA (const size_type e ) {
+        for (size_type i=0; i<cbasis_curl.extent(1); i++ ) {
+          for (size_type j=0; j<cbasis_curl.extent(1); j++ ) {
+            for (size_type k=0; k<cbasis_curl.extent(2); k++ ) {
+              for (size_type dim=0; dim<cbasis_curl.extent(3); dim++ ) {
+                stiffness(e,off(i),off(j)) += cbasis_curl(e,i,k,dim)*cbasis_curl(e,j,k,dim)*cwts(e,k);
+              }
+            }
+          }
+        }
+      });
+    }
+    // For non-HCURL bases, stiffness remains zero
+  }
+
+  return stiffness;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+// Get a parameter stiffness matrix for the full system
+///////////////////////////////////////////////////////////////////////////////////////
+
+template<class Node>
+void AssemblyManager<Node>::getParamStiffness(matrix_RCP & stiffness,
+                                               vector_RCP & diagStiff) {
+
+  Teuchos::TimeMonitor localtimer(*set_init_timer);
+
+  using namespace std;
+
+  debugger->print("**** Starting AssemblyManager::getParamStiffness ...");
+
+  typedef typename Node::execution_space LA_exec;
+  bool use_atomics_ = false;
+  if (LA_exec().concurrency() > 1) {
+    use_atomics_ = true;
+  }
+
+  bool compute_matrix = true;
+  if (matrix_free) {
+    compute_matrix = false;
+  }
+
+  typedef typename Tpetra::CrsMatrix<ScalarT, LO, GO, Node >::local_matrix_device_type local_matrix;
+  local_matrix localMatrix;
+
+  if (compute_matrix) {
+    localMatrix = stiffness->getLocalMatrixDevice();
+  }
+
+  auto diag_view = diagStiff->template getLocalView<LA_device>(Tpetra::Access::ReadWrite);
+  bool data_avail = true;
+  if (!Kokkos::SpaceAccessibility<LA_exec, AssemblyDevice::memory_space>::accessible) {
+    data_avail = false;
+  }
+
+  for (size_t block=0; block<groups.size(); ++block) {
+
+    auto offsets = wkset[block]->paramoffsets;
+    auto numDOF = groupData[block]->num_param_dof;
+
+    auto offsets_ladev = create_mirror(LA_exec(),offsets);
+    deep_copy(offsets_ladev,offsets);
+
+    auto numDOF_ladev = create_mirror(LA_exec(),numDOF);
+    deep_copy(numDOF_ladev,numDOF);
+
+    for (size_t grp=0; grp<groups[block].size(); ++grp) {
+
+      auto LIDs = groups[block][grp]->paramLIDs;
+      auto localstiff = this->getParamStiffness(block, grp);
+
+      if (data_avail) {
+
+        // Build the diagonal of the stiffness matrix
+        parallel_for("assembly insert stiffness diag",
+                     RangePolicy<LA_exec>(0,LIDs.extent(0)),
+                     MRHYDE_LAMBDA (const int elem ) {
+
+          int row = 0;
+          LO rowIndex = 0;
+
+          for (size_type n=0; n<numDOF.extent(0); ++n) {
+            for (int j=0; j<numDOF(n); j++) {
+              row = offsets(n,j);
+              rowIndex = LIDs(elem,row);
+
+              ScalarT val = localstiff(elem,row,row);
+
+              if (use_atomics_) {
+                Kokkos::atomic_add(&(diag_view(rowIndex,0)), val);
+              }
+              else {
+                diag_view(rowIndex,0) += val;
+              }
+            }
+          }
+        });
+
+        // Build the stiffness matrix if requested
+        if (compute_matrix) {
+          parallel_for("assembly insert stiffness",
+                       RangePolicy<LA_exec>(0,LIDs.extent(0)),
+                       MRHYDE_LAMBDA (const int elem ) {
+
+            int row = 0;
+            LO rowIndex = 0;
+
+            int col = 0;
+            LO cols[1028];
+            ScalarT vals[1028];
+            for (size_type n=0; n<numDOF.extent(0); ++n) {
+              const size_type numVals = numDOF(n);
+              for (int j=0; j<numDOF(n); j++) {
+                row = offsets(n,j);
+                rowIndex = LIDs(elem,row);
+                for (int k=0; k<numDOF(n); k++) {
+                  col = offsets(n,k);
+                  vals[k] = localstiff(elem,row,col);
+                  cols[k] = LIDs(elem,col);
+                }
+
+                localMatrix.sumIntoValues(rowIndex, cols, numVals, vals, false, use_atomics_);
+              }
+            }
+          });
+        }
+      }
+      else {
+        auto localstiff_ladev = create_mirror(LA_exec(),localstiff.getView());
+        deep_copy(localstiff_ladev,localstiff.getView());
+
+        auto LIDs_ladev = create_mirror(LA_exec(),LIDs);
+        deep_copy(LIDs_ladev,LIDs);
+
+        // Build the diagonal of the stiffness matrix
+        parallel_for("assembly insert stiffness diag (mirror)",
+                     RangePolicy<LA_exec>(0,LIDs_ladev.extent(0)),
+                     MRHYDE_LAMBDA (const int elem ) {
+
+          int row = 0;
+          LO rowIndex = 0;
+
+          for (size_type n=0; n<numDOF_ladev.extent(0); ++n) {
+            for (int j=0; j<numDOF_ladev(n); j++) {
+              row = offsets_ladev(n,j);
+              rowIndex = LIDs_ladev(elem,row);
+
+              ScalarT val = localstiff_ladev(elem,row,row);
+
+              if (use_atomics_) {
+                Kokkos::atomic_add(&(diag_view(rowIndex,0)), val);
+              }
+              else {
+                diag_view(rowIndex,0) += val;
+              }
+            }
+          }
+        });
+
+        if (compute_matrix) {
+          parallel_for("assembly insert stiffness (mirror)",
+                       RangePolicy<LA_exec>(0,LIDs_ladev.extent(0)),
+                       MRHYDE_LAMBDA (const int elem ) {
+
+            int row = 0;
+            LO rowIndex = 0;
+
+            int col = 0;
+            LO cols[1028];
+            ScalarT vals[1028];
+            for (size_type n=0; n<numDOF_ladev.extent(0); ++n) {
+              const size_type numVals = numDOF_ladev(n);
+              for (int j=0; j<numDOF_ladev(n); j++) {
+                row = offsets_ladev(n,j);
+                rowIndex = LIDs_ladev(elem,row);
+                for (int k=0; k<numDOF_ladev(n); k++) {
+                  col = offsets_ladev(n,k);
+                  vals[k] = localstiff_ladev(elem,row,col);
+                  cols[k] = LIDs_ladev(elem,col);
+                }
+
+                localMatrix.sumIntoValues(rowIndex, cols, numVals, vals, false, use_atomics_);
+              }
+            }
+          });
+        }
+      }
+    }
+  }
+
+  if (compute_matrix) {
+    stiffness->fillComplete();
+  }
+
+  debugger->print("**** Finished AssemblyManager::getParamStiffness ...");
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
 // Get a weighted mass matrix
 ///////////////////////////////////////////////////////////////////////////////////////
 
