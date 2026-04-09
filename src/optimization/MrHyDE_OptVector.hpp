@@ -1230,6 +1230,7 @@ private:
     if (have_mass_operator) {
       target->setMassOperators(massOperator, massInvOperator);
     }
+    target->use_proper_dual_spaces = this->use_proper_dual_spaces;
   }
 
   // Apply op (M or M^{-1}) per field block and add <op x_this, xs> into val.

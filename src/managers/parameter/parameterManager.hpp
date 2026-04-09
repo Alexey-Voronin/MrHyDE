@@ -199,18 +199,6 @@ namespace MrHyDE {
      *  Converts dual-space gradients to H(curl) Sobolev gradients. */
     void applyHcurlInverse(const vector_RCP & in, vector_RCP & out) const;
 
-    // This Controls where Sobolev/Riesz preconditioning is applied in the optimization path.
-    // It is needed because ROL algorithms consume preconditioning differently:
-    // - Line Search / L-BFGS does not call Objective::precond(), so we keep
-    //   preconditioning in gradient assembly to preserve current behavior.
-    // - Trust Region / TruncatedCG calls Objective::precond() every CG iteration,
-    //   so preconditioning is moved there for metric-consistent model terms.
-    // The mode is selected once in ROL2Solve() from Step Type and used by both
-    // PostprocessManager::computeSensitivities() and Objective_MILO::precond().
-    enum class GradientPrecondMode {
-      InGradientAssembly,
-      InObjectivePrecond
-    };
 
     /** @brief Releases stored memory and cleans up data structures. */
     void purgeMemory();
@@ -366,7 +354,6 @@ namespace MrHyDE {
     Teuchos::RCP<Teuchos::Time> constructortimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::ParameterManager::constructor()");
     Teuchos::RCP<Teuchos::Time> updatetimer      = Teuchos::TimeMonitor::getNewCounter("MrHyDE::ParameterManager::updateParams()");
     Teuchos::RCP<Teuchos::Time> getcurrenttimer  = Teuchos::TimeMonitor::getNewCounter("MrHyDE::ParameterManager::getCurrentParams()");
-    GradientPrecondMode gradientPrecondMode = GradientPrecondMode::InGradientAssembly;
     
   };
   

@@ -1651,29 +1651,9 @@ void PostprocessManager<Node>::computeSensitivities(vector<vector_RCP> &u,
     vector_RCP complete_grad = linalg->getNewParamVector();
     linalg->exportParamVectorFromOverlapped(complete_grad, sens_over);
 
-    // Step 3: Apply preconditioning to the COMPLETE gradient only when requested.
-    // Trust Region mode routes preconditioning through Objective::precond().
-    if (params->gradientPrecondMode == ParameterManager<Node>::GradientPrecondMode::InGradientAssembly) {
-      if (params->hasHcurlInverseOperator()) {
-        // H(curl) parameters: apply (M+K)^{-1} to complete gradient
-        vector_RCP gradient_prec = linalg->getNewParamVector();
-        params->applyHcurlInverse(complete_grad, gradient_prec);
-        curr_grad->update(1.0, *gradient_prec, 1.0);
-        debugger->print(1, "Applied H(curl) (M+K)^{-1} preconditioning to complete gradient");
-      } else if (params->hasMassInverseOperator()) {
-        // Standard parameters: apply M^{-1} to complete gradient
-        vector_RCP gradient_prec = linalg->getNewParamVector();
-        params->applyMassInverse(complete_grad, gradient_prec);
-        curr_grad->update(1.0, *gradient_prec, 1.0);
-        debugger->print(1, "Applied mass M^{-1} preconditioning to complete gradient");
-      } else {
-        // No preconditioning
-        curr_grad->update(1.0, *complete_grad, 1.0);
-      }
-    } else {
-      // Trust Region path: return the unpreconditioned dual-space gradient.
-      curr_grad->update(1.0, *complete_grad, 1.0);
-    }
+    // Return the complete dual-space gradient without preconditioning.
+    // Metric handling (Riesz map) is done by MrHyDE_OptVector::dual()/apply().
+    curr_grad->update(1.0, *complete_grad, 1.0);
 
   }
   //this->saveObjectiveGradientData(gradient);

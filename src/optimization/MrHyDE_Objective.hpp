@@ -80,6 +80,7 @@ namespace ROL {
       Teuchos::TimeMonitor localtimer(*gradienttimer);
       bool newparams = this->checkNewParams(Params);
 
+      // force recompute each time by setting newparams to true
       if (newparams) {
         MrHyDE_OptVector Paramsp =
         Teuchos::dyn_cast<MrHyDE_OptVector >(const_cast<Vector<Real> &>(Params));
@@ -92,13 +93,13 @@ namespace ROL {
       MrHyDE_OptVector sens =
       Teuchos::dyn_cast<MrHyDE_OptVector >(const_cast<Vector<Real> &>(g));
 
-      const bool is_trust_region_mode =
-          (params->gradientPrecondMode ==
-           ParameterManager<SolverNode>::GradientPrecondMode::InObjectivePrecond);
-      sens.setDualSpace(is_trust_region_mode);
 
+      MrHyDE_OptVector sens =
+        Teuchos::dyn_cast<MrHyDE_OptVector>(const_cast<Vector<Real> &>(g));
+      sens.setDualSpace(true);  // gradient is always in the dual space
       sens.zero();
       solver->adjointModel(sens);
+
 
     }
     
@@ -121,18 +122,7 @@ namespace ROL {
 
     //! Compute the Hessian-vector product of the objective function
     void hessVec(Vector<Real> &hv, const Vector<Real> &v, const Vector<Real> &Params, Real &tol ) override {
-      // First get the unpreconditioned Hessian-vector product via finite differences
       this->ROL::Objective<Real>::hessVec(hv,v,Params,tol);
-
-      // Sanity-test: apply the same preconditioner used by TRCG.
-      // if (params->gradientPrecondMode !=
-      //     ParameterManager<SolverNode>::GradientPrecondMode::InObjectivePrecond) {
-      //   return;
-      // }
-
-      // ROL::Ptr<Vector<Real>> hv_raw = hv.clone();
-      // hv_raw->set(hv);
-      // this->precond(hv, *hv_raw, Params, tol);
     }
 
 
@@ -170,77 +160,13 @@ namespace ROL {
     // }
 
 
-    //! Hessian preconditioner action used by ROL trust-region and Newton-Krylov
+    //! Hessian preconditioner action used by ROL trust-region and Newton-Krylov.
+    //! Delegates to dual() which applies the Riesz map (P^{-1} for dual input).
     void precond(Vector<Real> &Pv, const Vector<Real> &v,
                  const Vector<Real> &x, Real &tol) override {
       ROL_UNUSED(x);
       ROL_UNUSED(tol);
-
-      if (params->gradientPrecondMode !=
-          ParameterManager<SolverNode>::GradientPrecondMode::InObjectivePrecond) {
-        Pv.set(v.dual());
-        return;
-      }
-
-      MrHyDE_OptVector &Pv_opt =
-          Teuchos::dyn_cast<MrHyDE_OptVector>(Pv);
-      const MrHyDE_OptVector &v_opt =
-          Teuchos::dyn_cast<const MrHyDE_OptVector>(v);
-
-      // Select which inverse operator to apply to field components
-      bool applied = false;
-      if (params->hasHcurlInverseOperator()) {
-        // H(curl) parameters: apply (M+K)^{-1}
-        if (v_opt.haveField() && Pv_opt.haveField()) {
-          const auto &v_fields = v_opt.getField();
-          auto &Pv_fields = Pv_opt.getField();
-          for (size_t i = 0; i < v_fields.size(); ++i) {
-            if (i < Pv_fields.size() &&
-                v_fields[i] != ROL::nullPtr &&
-                Pv_fields[i] != ROL::nullPtr) {
-              auto Pv_vec = Pv_fields[i]->getVector();
-              params->applyHcurlInverse(v_fields[i]->getVector(), Pv_vec);
-            }
-          }
-        }
-        applied = true;
-      }
-      else if (params->hasMassInverseOperator()) {
-        // Standard parameters: apply M^{-1}
-        if (v_opt.haveField() && Pv_opt.haveField()) {
-          const auto &v_fields = v_opt.getField();
-          auto &Pv_fields = Pv_opt.getField();
-          for (size_t i = 0; i < v_fields.size(); ++i) {
-            if (i < Pv_fields.size() &&
-                v_fields[i] != ROL::nullPtr &&
-                Pv_fields[i] != ROL::nullPtr) {
-              auto Pv_vec = Pv_fields[i]->getVector();
-              params->applyMassInverse(v_fields[i]->getVector(), Pv_vec);
-            }
-          }
-        }
-        applied = true;
-      }
-
-      if (applied) {
-        // Copy scalar parameters unchanged (no mass matrix for scalars)
-        if (v_opt.haveScalar() && Pv_opt.haveScalar()) {
-          const auto &v_scalars = v_opt.getParameter();
-          auto &Pv_scalars = Pv_opt.getParameter();
-          for (size_t i = 0; i < v_scalars.size(); ++i) {
-            if (i < Pv_scalars.size() &&
-                v_scalars[i] != ROL::nullPtr &&
-                Pv_scalars[i] != ROL::nullPtr) {
-              Pv_scalars[i]->set(*v_scalars[i]);
-            }
-          }
-        }
-        Pv_opt.setDualSpace(false);
-      }
-      else {
-        // No preconditioner available: identity
-        Pv.set(v.dual());
-      }
+      Pv.set(v.dual());
     }
     
     //print out Hessian (estimated via component-wise FD; to get inverse covariance in linear-Gaussian Bayesian inverse problem)

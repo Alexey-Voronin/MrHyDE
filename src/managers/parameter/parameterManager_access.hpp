@@ -167,13 +167,20 @@ MrHyDE_OptVector ParameterManager<Node>::getCurrentVector() {
     //}
   }
     
-  // OptVector uses Euclidean dot(); M^(-1) preconditioning is applied during gradient assembly.
   std::string mass_type = "none";
 
   MrHyDE_OptVector newvec(new_disc_params, new_active_params, 1.0, mass_type, Comm->getRank());
   newvec.setVerbosity(verbosity);
 
-  // Mass operators intentionally NOT set on OptVector; preconditioning is applied during gradient assembly.
+  // Wire Riesz operators into the OptVector for metric-aware dot/dual/apply.
+  // Prefer H(curl) operators (alpha1*M + alpha2*K); fall back to mass operators.
+  if (hasHcurlInverseOperator()) {
+    newvec.setMassOperators(hcurlForwardOp, hcurlInvOperator);
+    newvec.setProperDualSpaces(true);
+  } else if (hasMassInverseOperator()) {
+    newvec.setMassOperators(massForwardOp, massInvOperator);
+    newvec.setProperDualSpaces(true);
+  }
 
   return newvec;
 }
