@@ -370,8 +370,11 @@ void AnalysisManager::ROLSolve()
 
   Teuchos::RCP<std::ostream> outStream;
   outStream = Teuchos::rcp(&std::cout, false);
-  // Generate data and get objective
-  obj = Teuchos::rcp(new ROL::Objective_MILO<RealT>(solver_, postproc_, params_));
+  // Generate data and get objective.
+  auto & generalROL2 = ROLsettings.sublist("General");
+  const std::string hessVecPrecondMode = generalROL2.get("HessVec Precond Mode", "identity");
+  obj = Teuchos::rcp(new ROL::Objective_MILO<RealT>(solver_, postproc_, params_,
+                                                     hessVecPrecondMode));
 
   Teuchos::RCP<ROL::Step<RealT>> step;
 
@@ -614,8 +617,11 @@ void AnalysisManager::ROL2Solve()
     outStream = ROL::makePtrFromRef(bhs);
   }
 
-  // Generate data and get objective
-  obj = Teuchos::rcp(new ROL::Objective_MILO<RealT>(solver_, postproc_, params_));
+  // Generate data and get objective.
+  auto & generalROL2 = ROLsettings.sublist("General");
+  const std::string hessVecPrecondMode = generalROL2.get("HessVec Precond Mode", "identity");
+  obj = Teuchos::rcp(new ROL::Objective_MILO<RealT>(solver_, postproc_, params_,
+                                                     hessVecPrecondMode));
 
   // Discretized mass must be assembled before OptVector so ParameterManager can build operators.
   solver_->setupDiscretizedParamMass();

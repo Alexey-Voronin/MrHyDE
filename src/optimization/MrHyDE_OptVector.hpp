@@ -836,9 +836,30 @@ public:
     ScalarT val = this->dot(*this);
     return std::sqrt(val);
   }
-  
+
+  // Euclidean norm ignoring mass operators. Used for FD step size computation
+  // where metric-weighted norms would distort the finite-difference scaling.
+  ScalarT euclideanNorm() const {
+    ScalarT val(0);
+    if (field_vec.size() > 0) {
+      for (size_t i=0; i<field_vec.size(); ++i) {
+        if ( field_vec[i] != ROL::nullPtr ) {
+          val += field_vec[i]->dot(*(field_vec[i]));
+        }
+      }
+    }
+    if (scalar_vec.size() > 0) {
+      for (size_t i=0; i<scalar_vec.size(); ++i) {
+        if ( scalar_vec[i] != ROL::nullPtr ) {
+          val += scalar_vec[i]->dot(*(scalar_vec[i]));
+        }
+      }
+    }
+    return std::sqrt(val);
+  }
+
   ///////////////////////////////////////////////////
-  
+
   ROL::Ptr<ROL::Vector<ScalarT> > clone(void) const {
     
     Teuchos::TimeMonitor localtimer(*clonetimer);
