@@ -1,0 +1,80 @@
+p=0 | CubeHexMesh: Building sub cells
+[MetricOpStats] label=ParamMass_M rows=4760 row_sum(min,max,mean)=(4.0404e-07,0.00198,0.000659429) row_sum_ratio_max_over_absmin=4900.5 abs_row_sum(min,max,mean)=(4.0404e-07,0.00198,0.000659429) abs_row_sum_ratio_max_over_min=4900.5 diag(min,max,mean)=(1.79574e-07,0.00088,0.000293079) nonpos_diag=0 max_abs_entry=0.00088
+[MetricOpStats] label=ParamStiffness_K rows=4760 row_sum(min,max,mean)=(-2.98023e-08,3.72529e-08,-3.56199e-10) row_sum_ratio_max_over_absmin=1.25 abs_row_sum(min,max,mean)=(7.92162e+07,2.64e+08,1.93296e+08) abs_row_sum_ratio_max_over_min=3.33265 diag(min,max,mean)=(1.32054e+07,5.28e+07,3.5148e+07) nonpos_diag=0 max_abs_entry=5.28e+07
+[MetricOpStats] label=ParamMass_M_reprint rows=4760 row_sum(min,max,mean)=(4.0404e-07,0.00198,0.000659429) row_sum_ratio_max_over_absmin=4900.5 abs_row_sum(min,max,mean)=(4.0404e-07,0.00198,0.000659429) abs_row_sum_ratio_max_over_min=4900.5 diag(min,max,mean)=(1.79574e-07,0.00088,0.000293079) nonpos_diag=0 max_abs_entry=0.00088
+[MetricOpStats] label=K_over_M abs_row_sum_ratio(max)=1.33333e+11 abs_row_sum_ratio(mean)=2.93127e+11
+[MetricOpStats] label=Hcurl_H rows=4760 row_sum(min,max,mean)=(0.000404,1.98,0.659429) row_sum_ratio_max_over_absmin=4900.99 abs_row_sum(min,max,mean)=(7.92162e+08,2.64e+09,1.93296e+09) abs_row_sum_ratio_max_over_min=3.33265 diag(min,max,mean)=(1.32054e+08,5.28e+08,3.5148e+08) nonpos_diag=0 max_abs_entry=5.28e+08 alpha1=1000 alpha2=10 hcurlMetricScale=1 solver_type=sparse_direct
+MrHyDE vector contract check (primal) errors: e[0]=0 e[1]=0 e[2]=0 e[3]=0 e[4]=0 e[5]=0 e[6]=0 e[7]=0 e[8]=0 e[9]=0 e[10]=0 e[11]=0 e[12]=0
+MrHyDE vector contract check (dual) errors: e[0]=0 e[1]=3.0049e-15 e[2]=0 e[3]=0 e[4]=0 e[5]=3.57412e-16 e[6]=7.88476e-16 e[7]=0 e[8]=0 e[9]=2.11758e-22 e[10]=0 e[11]=1.19546e-12 e[12]=2.40444e-13
+MrHyDE vector contract check: max_primal_err=0 max_dual_err=1.19546e-12 tol=1e-08
+
+Quasi-Newton Method with Limited-Memory BFGS
+Line Search: Cubic Interpolation satisfying Wolfe Conditions
+-------------------------------------------------------------------------------------------------------------
+Quasi-Newton status output definitions
+
+  iter     - Number of iterates (steps taken)
+  value    - Objective function value
+  gnorm    - Norm of the gradient
+  snorm    - Norm of the step (update to optimization vector)
+  alpha    - Line search step length
+  #fval    - Cumulative number of times the objective function was evaluated
+  #grad    - Cumulative number of times the gradient was computed
+  ls_#fval - Number of the times the objective function was evaluated during the line search
+  ls_#grad - Number of the times the gradient was evaluated during the line search
+-------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          alpha          #fval     #grad     ls_#fval  ls_#grad  
+  0     1.230816e-11   6.069200e-04   ---            ---            1         1         ---       ---       
+  1     7.563897e-12   4.946120e-04   4.228729e-07   6.967523e-04   7         2         5         0         
+  2     3.686542e-13   6.496435e-05   1.790331e-07   1.000000e+00   9         3         1         0         
+  3     2.828763e-13   8.614663e-05   2.449842e-08   1.000000e+00   11        4         1         0         
+  4     1.543669e-13   4.688247e-05   1.315231e-08   1.000000e+00   13        5         1         0         
+  5     6.622838e-14   2.100292e-05   2.969818e-08   1.000000e+00   15        6         1         0         
+  6     4.403700e-14   1.695113e-05   1.003041e-08   1.000000e+00   17        7         1         0         
+  7     1.547344e-14   1.213850e-05   2.865214e-08   1.000000e+00   19        8         1         0         
+  8     1.111130e-14   1.084553e-05   7.906802e-09   4.676437e-01   22        9         2         0         
+  9     7.337511e-15   7.071650e-06   4.204939e-09   1.000000e+00   24        10        1         0         
+  10    3.764889e-15   4.813596e-06   9.280432e-09   1.000000e+00   26        11        1         0         
+  11    2.533378e-15   3.941660e-06   5.527869e-09   1.000000e+00   28        12        1         0         
+  12    1.956089e-15   4.160122e-06   5.255944e-09   4.861488e-01   31        13        2         0         
+  13    1.263504e-15   2.008284e-06   4.846932e-09   1.000000e+00   33        14        1         0         
+  14    1.089063e-15   1.550855e-06   1.478009e-09   1.000000e+00   35        15        1         0         
+  15    8.675829e-16   1.069634e-06   3.251735e-09   1.000000e+00   37        16        1         0         
+  16    7.349995e-16   1.185869e-06   2.781626e-09   1.000000e+00   39        17        1         0         
+  17    5.905489e-16   9.832649e-07   3.000955e-09   1.000000e+00   41        18        1         0         
+  18    5.607481e-16   1.353027e-06   5.804312e-09   1.000000e+00   43        19        1         0         
+  19    5.124927e-16   1.388039e-06   4.268426e-09   1.000000e+00   45        20        1         0         
+  20    4.192039e-16   2.239579e-06   4.628606e-09   1.000000e+00   47        21        1         0         
+  21    3.434885e-16   2.655976e-06   3.053247e-09   1.000000e+00   49        22        1         0         
+  22    2.898336e-16   9.562498e-07   2.440784e-09   1.000000e+00   51        23        1         0         
+  23    2.577749e-16   5.103660e-07   6.399574e-10   1.000000e+00   53        24        1         0         
+  24    2.318725e-16   8.732593e-07   1.774299e-09   1.000000e+00   55        25        1         0         
+  25    2.206884e-16   1.451832e-06   4.810207e-09   1.000000e+00   57        26        1         0         
+  26    2.127896e-16   1.723491e-06   3.155677e-09   1.000000e+00   59        27        1         0         
+  27    2.008792e-16   9.520923e-07   1.215746e-09   4.998237e-01   62        28        2         0         
+  28    1.975080e-16   1.174173e-06   3.077627e-09   1.000000e+00   64        29        1         0         
+  29    1.866162e-16   1.227451e-06   2.441195e-09   1.000000e+00   66        30        1         0         
+  30    1.768804e-16   1.129892e-06   4.834418e-10   1.939858e-01   70        31        3         0         
+  31    1.541603e-16   4.598804e-07   1.421328e-09   1.000000e+00   72        32        1         0         
+  32    1.345593e-16   4.832245e-07   1.635074e-09   1.000000e+00   74        33        1         0         
+  33    1.244059e-16   5.064718e-07   3.756892e-09   1.000000e+00   76        34        1         0         
+  34    1.088443e-16   4.493456e-07   8.671114e-10   1.000000e+00   78        35        1         0         
+  35    1.002913e-16   6.597473e-07   2.539980e-09   1.000000e+00   80        36        1         0         
+  36    8.665099e-17   4.001587e-07   1.240993e-09   1.000000e+00   82        37        1         0         
+  37    8.076679e-17   3.617174e-07   1.185360e-09   1.000000e+00   84        38        1         0         
+  38    7.542111e-17   3.679165e-07   1.951598e-09   4.953924e-01   87        39        2         0         
+  39    7.441667e-17   3.559885e-07   7.966145e-10   1.989247e-01   91        40        3         0         
+  40    7.152527e-17   3.514021e-07   1.836166e-09   4.972701e-01   94        41        2         0         
+  41    7.146963e-17   6.043635e-07   3.869423e-09   1.000000e+00   96        42        1         0         
+  42    6.710837e-17   5.268373e-07   1.233087e-09   4.975262e-01   99        43        2         0         
+  43    5.463473e-17   3.357439e-07   1.643788e-09   1.000000e+00   101       44        1         0         
+  44    5.144516e-17   3.621915e-07   2.808824e-09   1.000000e+00   103       45        1         0         
+  45    4.978274e-17   2.624251e-07   6.131644e-10   1.000000e+00   105       46        1         0         
+  46    4.591011e-17   2.675442e-07   5.298633e-10   1.000000e+00   107       47        1         0         
+  47    4.136166e-17   3.195734e-07   1.287690e-09   1.000000e+00   109       48        1         0         
+  48    3.947834e-17   7.249513e-07   1.690231e-09   1.000000e+00   111       49        1         0         
+  49    3.665729e-17   2.443968e-07   4.837619e-10   1.000000e+00   113       50        1         0         
+  50    3.466666e-17   2.258019e-07   7.766783e-10   1.000000e+00   115       51        1         0         
+  51    3.466666e-17   2.258019e-07   0.000000e+00   0.000000e+00   136       52        20        0         
+Optimization Terminated with Status: Step Tolerance Met
+exit_code=0
