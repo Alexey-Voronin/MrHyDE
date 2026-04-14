@@ -518,21 +518,23 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
       const double diag_mean = global_diag_sum * inv_rows;
       const double row_ratio = (std::abs(global_row_sum_min) > 0.0) ? global_row_sum_max / std::abs(global_row_sum_min) : 0.0;
       const double abs_row_ratio = (global_abs_row_sum_min > 0.0) ? global_abs_row_sum_max / global_abs_row_sum_min : 0.0;
-      std::cout << "[MetricOpStats] label=Hcurl_H rows=" << nglobal
-                << " row_sum(min,max,mean)=(" << global_row_sum_min << ","
-                << global_row_sum_max << "," << row_mean << ")"
-                << " row_sum_ratio_max_over_absmin=" << row_ratio
-                << " abs_row_sum(min,max,mean)=(" << global_abs_row_sum_min << ","
-                << global_abs_row_sum_max << "," << abs_row_mean << ")"
-                << " abs_row_sum_ratio_max_over_min=" << abs_row_ratio
-                << " diag(min,max,mean)=(" << global_diag_min << ","
-                << global_diag_max << "," << diag_mean << ")"
-                << " nonpos_diag=" << global_nonpos_diag
-                << " max_abs_entry=" << global_max_abs_entry
-                << " alpha1=" << alpha1
-                << " alpha2=" << alpha2
-                << " hcurlMetricScale=" << hcurlMetricScale_
-                << " solver_type=" << mass_type
+      std::cout << "[MetricOpStats] Hcurl_H  (rows=" << nglobal
+                << "  alpha1=" << alpha1 << "  alpha2=" << alpha2
+                << "  scale=" << hcurlMetricScale_
+                << "  solver=" << mass_type << ")\n"
+                << "  row_sum       min=" << global_row_sum_min
+                << "  max=" << global_row_sum_max
+                << "  mean=" << row_mean
+                << "  max/|min|=" << row_ratio << "\n"
+                << "  |row_sum|     min=" << global_abs_row_sum_min
+                << "  max=" << global_abs_row_sum_max
+                << "  mean=" << abs_row_mean
+                << "  max/min=" << abs_row_ratio << "\n"
+                << "  diag          min=" << global_diag_min
+                << "  max=" << global_diag_max
+                << "  mean=" << diag_mean
+                << "  nonpos=" << global_nonpos_diag << "\n"
+                << "  max_abs_entry=" << global_max_abs_entry
                 << std::endl;
     }
   }
@@ -584,7 +586,17 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
       }
     }
 
-    hcurlInvOperator = Teuchos::rcp(new block_prec::DiagonalInverseOperator<SolverNode>(lumped_diag_vec));
+    // DiagonalInverseOperator expects pre-inverted values (it multiplies, not divides).
+    auto inv_diag_vec = Teuchos::rcp(new LA_Vector(lumped_diag_vec->getMap()));
+    {
+      auto d_view = lumped_diag_vec->getLocalViewHost(Tpetra::Access::ReadOnly);
+      auto inv_view = inv_diag_vec->getLocalViewHost(Tpetra::Access::ReadWrite);
+      for (size_t i = 0; i < d_view.extent(0); ++i) {
+        inv_view(i, 0) = 1.0 / d_view(i, 0);
+      }
+    }
+    hcurlInvOperator = Teuchos::rcp(new block_prec::DiagonalInverseOperator<SolverNode>(inv_diag_vec));
+    hcurlForwardOp = Teuchos::rcp(new block_prec::DiagonalMultiplyOperator<SolverNode>(lumped_diag_vec));
   }
   else {
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,

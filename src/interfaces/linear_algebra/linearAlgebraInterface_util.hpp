@@ -544,18 +544,20 @@ LinearAlgebraInterface<Node>::printMatrixScaleDiagnostics(const Teuchos::RCP<LA_
   if (comm->getRank() == 0) {
     const double row_ratio = (std::abs(stats.row_sum_min) > 0.0) ? stats.row_sum_max / std::abs(stats.row_sum_min) : 0.0;
     const double abs_row_ratio = (stats.abs_row_sum_min > 0.0) ? stats.abs_row_sum_max / stats.abs_row_sum_min : 0.0;
-    std::cout << "[MetricOpStats] label=" << label
-              << " rows=" << stats.global_rows
-              << " row_sum(min,max,mean)=(" << stats.row_sum_min << ","
-              << stats.row_sum_max << "," << stats.row_sum_mean << ")"
-              << " row_sum_ratio_max_over_absmin=" << row_ratio
-              << " abs_row_sum(min,max,mean)=(" << stats.abs_row_sum_min << ","
-              << stats.abs_row_sum_max << "," << stats.abs_row_sum_mean << ")"
-              << " abs_row_sum_ratio_max_over_min=" << abs_row_ratio
-              << " diag(min,max,mean)=(" << stats.diag_min << ","
-              << stats.diag_max << "," << stats.diag_mean << ")"
-              << " nonpos_diag=" << stats.nonpos_diag_count
-              << " max_abs_entry=" << stats.max_abs_entry
+    std::cout << "[MetricOpStats] " << label << "  (rows=" << stats.global_rows << ")\n"
+              << "  row_sum       min=" << stats.row_sum_min
+              << "  max=" << stats.row_sum_max
+              << "  mean=" << stats.row_sum_mean
+              << "  max/|min|=" << row_ratio << "\n"
+              << "  |row_sum|     min=" << stats.abs_row_sum_min
+              << "  max=" << stats.abs_row_sum_max
+              << "  mean=" << stats.abs_row_sum_mean
+              << "  max/min=" << abs_row_ratio << "\n"
+              << "  diag          min=" << stats.diag_min
+              << "  max=" << stats.diag_max
+              << "  mean=" << stats.diag_mean
+              << "  nonpos=" << stats.nonpos_diag_count << "\n"
+              << "  max_abs_entry=" << stats.max_abs_entry
               << std::endl;
   }
 
