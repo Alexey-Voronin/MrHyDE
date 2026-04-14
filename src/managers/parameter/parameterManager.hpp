@@ -348,6 +348,14 @@ namespace MrHyDE {
     Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> hcurlForwardOp;
     Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> hcurlInvOperator;
 
+    // When alpha1 == alpha2, we factor (M + K) with unit weights (entries O(1))
+    // instead of (alpha*M + alpha*K) (entries O(alpha)). The factored operator is
+    // (1/alpha) * (M+K)^{-1}, so applyHcurlInverse post-multiplies by alpha to
+    // recover (alpha*(M+K))^{-1} * in. This keeps KLU roundoff at O(eps_mach)
+    // instead of O(eps_mach * alpha) and removes the metric noise floor that
+    // otherwise plateaus L-BFGS when alpha is large (e.g. 1e20). Defaults to 1.
+    ScalarT hcurlMetricScale_ = static_cast<ScalarT>(1);
+
     void buildMassOperators(Teuchos::RCP<LA_MultiVector> diagParamMass, matrix_RCP paramMass);
     void buildHcurlOperators(matrix_RCP paramMass, matrix_RCP paramStiffness);
 

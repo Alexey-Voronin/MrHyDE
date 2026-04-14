@@ -44,6 +44,7 @@ namespace ROL {
     Teuchos::RCP<PostprocessManager<SolverNode> > postproc;                              // Postprocessing object for MILO (write solution, computes response, etc.)
     Teuchos::RCP<ParameterManager<SolverNode> > params;
     PrecondMode precondMode_ = PrecondMode::Dual;
+    bool didVectorContractCheck_ = false;
     Teuchos::RCP<Teuchos::Time> valuetimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::Objective::value()");
     Teuchos::RCP<Teuchos::Time> gradienttimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::Objective::gradient()");
 
@@ -55,6 +56,67 @@ namespace ROL {
 
     bool isRootRank() const {
       return (solver != Teuchos::null && solver->Comm != Teuchos::null && solver->Comm->getRank() == 0);
+    }
+
+    Real maxCheckError(const std::vector<Real> &errs) const {
+      Real maxErr = static_cast<Real>(0);
+      for (size_t i = 0; i < errs.size(); ++i) {
+        maxErr = std::max(maxErr, std::abs(errs[i]));
+      }
+      return maxErr;
+    }
+
+    void printCheckErrors(const std::string &label, const std::vector<Real> &errs) const {
+      if (!isRootRank()) {
+        return;
+      }
+      std::cout << "MrHyDE vector contract check (" << label << ") errors:";
+      for (size_t i = 0; i < errs.size(); ++i) {
+        std::cout << " e[" << i << "]=" << errs[i];
+      }
+      std::cout << std::endl;
+    }
+
+    void runVectorContractCheckOnce(const Vector<Real> &Params, const Vector<Real> &g) {
+      if (didVectorContractCheck_) {
+        return;
+      }
+
+      auto px = Params.clone();
+      auto py = Params.clone();
+      px->set(Params);
+      py->set(Params);
+      py->scale(static_cast<Real>(0.5));
+      py->axpy(static_cast<Real>(1.0), *px);
+
+      auto gx = g.clone();
+      auto gy = g.clone();
+      gx->set(g);
+      gy->set(g);
+      gy->scale(static_cast<Real>(0.5));
+      gy->axpy(static_cast<Real>(1.0), *gx);
+
+      const std::vector<Real> pErrs = Params.checkVector(*px, *py, false);
+      const std::vector<Real> gErrs = g.checkVector(*gx, *gy, false);
+      printCheckErrors("primal", pErrs);
+      printCheckErrors("dual", gErrs);
+
+      const Real pMax = maxCheckError(pErrs);
+      const Real gMax = maxCheckError(gErrs);
+      const Real maxErr = std::max(pMax, gMax);
+      const Real tol = static_cast<Real>(1.0e-8);
+
+      if (isRootRank()) {
+        std::cout << "MrHyDE vector contract check: max_primal_err=" << pMax
+                  << " max_dual_err=" << gMax
+                  << " tol=" << tol << std::endl;
+      }
+
+      TEUCHOS_TEST_FOR_EXCEPTION(maxErr > tol, std::runtime_error,
+                                 "MrHyDE vector contract check failed: max error = "
+                                 << maxErr << ", tolerance = " << tol);
+
+      didVectorContractCheck_ = true;
     }
     
   public:
@@ -120,6 +182,7 @@ namespace ROL {
       sens.setDualSpace(true);  // gradient is always in the dual space
       sens.zero();
       solver->adjointModel(sens);
+      runVectorContractCheckOnce(Params, g);
     }
     
     bool checkNewParams(const Vector<Real> &Params) {

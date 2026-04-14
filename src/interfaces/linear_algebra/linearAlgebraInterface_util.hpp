@@ -18,6 +18,9 @@
 #include <BelosPseudoBlockTFQMRSolMgr.hpp>
 #include <BelosRCGSolMgr.hpp>
 #include <BelosTFQMRSolMgr.hpp>
+#include <algorithm>
+#include <cmath>
+#include <limits>
 
 using namespace MrHyDE;
 
@@ -427,4 +430,134 @@ LinearAlgebraInterface<Node>::extractLumpedDiagonal(const Teuchos::RCP<LA_CrsMat
   }
 
   return diag;
+}
+
+template<class Node>
+typename LinearAlgebraInterface<Node>::MatrixScaleStats
+LinearAlgebraInterface<Node>::printMatrixScaleDiagnostics(const Teuchos::RCP<LA_CrsMatrix> & matrix,
+                                                          const std::string & label) const {
+  MatrixScaleStats stats;
+  if (matrix.is_null()) {
+    return stats;
+  }
+
+  using LA_Vector = Tpetra::Vector<ScalarT, LO, GO, Node>;
+  using Teuchos::as;
+  const size_t nlocal = matrix->getLocalNumRows();
+  const size_t nglobal = matrix->getGlobalNumRows();
+
+  auto ones = Teuchos::rcp(new LA_Vector(matrix->getDomainMap()));
+  auto rowSums = Teuchos::rcp(new LA_Vector(matrix->getRowMap()));
+  ones->putScalar(static_cast<ScalarT>(1.0));
+  matrix->apply(*ones, *rowSums);
+  auto row_view = rowSums->getLocalViewHost(Tpetra::Access::ReadOnly);
+
+  auto diag = Teuchos::rcp(new LA_Vector(matrix->getRowMap()));
+  matrix->getLocalDiagCopy(*diag);
+  auto diag_view = diag->getLocalViewHost(Tpetra::Access::ReadOnly);
+
+  double local_row_sum_min = std::numeric_limits<double>::infinity();
+  double local_row_sum_max = -std::numeric_limits<double>::infinity();
+  double local_row_sum_sum = 0.0;
+  double local_abs_row_sum_min = std::numeric_limits<double>::infinity();
+  double local_abs_row_sum_max = -std::numeric_limits<double>::infinity();
+  double local_abs_row_sum_sum = 0.0;
+  double local_diag_min = std::numeric_limits<double>::infinity();
+  double local_diag_max = -std::numeric_limits<double>::infinity();
+  double local_diag_sum = 0.0;
+  long long local_nonpos_diag = 0;
+  double local_max_abs_entry = 0.0;
+
+  for (size_t i = 0; i < nlocal; ++i) {
+    const double rs = as<double>(row_view(i, 0));
+    local_row_sum_min = std::min(local_row_sum_min, rs);
+    local_row_sum_max = std::max(local_row_sum_max, rs);
+    local_row_sum_sum += rs;
+
+    typename LA_CrsMatrix::local_inds_host_view_type idx;
+    typename LA_CrsMatrix::values_host_view_type vals;
+    matrix->getLocalRowView(i, idx, vals);
+    double abs_rs = 0.0;
+    for (size_t j = 0; j < idx.extent(0); ++j) {
+      const double av = std::abs(as<double>(vals[j]));
+      abs_rs += av;
+      local_max_abs_entry = std::max(local_max_abs_entry, av);
+    }
+    local_abs_row_sum_min = std::min(local_abs_row_sum_min, abs_rs);
+    local_abs_row_sum_max = std::max(local_abs_row_sum_max, abs_rs);
+    local_abs_row_sum_sum += abs_rs;
+
+    const double dv = as<double>(diag_view(i, 0));
+    local_diag_min = std::min(local_diag_min, dv);
+    local_diag_max = std::max(local_diag_max, dv);
+    local_diag_sum += dv;
+    if (dv <= 0.0) {
+      local_nonpos_diag += 1;
+    }
+  }
+
+  if (nlocal == 0) {
+    local_row_sum_min = 0.0;
+    local_row_sum_max = 0.0;
+    local_abs_row_sum_min = 0.0;
+    local_abs_row_sum_max = 0.0;
+    local_diag_min = 0.0;
+    local_diag_max = 0.0;
+  }
+
+  double global_row_sum_min = 0.0, global_row_sum_max = 0.0, global_row_sum_sum = 0.0;
+  double global_abs_row_sum_min = 0.0, global_abs_row_sum_max = 0.0, global_abs_row_sum_sum = 0.0;
+  double global_diag_min = 0.0, global_diag_max = 0.0, global_diag_sum = 0.0;
+  double global_max_abs_entry = 0.0;
+  long long global_nonpos_diag = 0;
+  long long global_rows_ll = static_cast<long long>(nglobal);
+
+  Teuchos::reduceAll(*comm, Teuchos::REDUCE_MIN, 1, &local_row_sum_min, &global_row_sum_min);
+  Teuchos::reduceAll(*comm, Teuchos::REDUCE_MAX, 1, &local_row_sum_max, &global_row_sum_max);
+  Teuchos::reduceAll(*comm, Teuchos::REDUCE_SUM, 1, &local_row_sum_sum, &global_row_sum_sum);
+  Teuchos::reduceAll(*comm, Teuchos::REDUCE_MIN, 1, &local_abs_row_sum_min, &global_abs_row_sum_min);
+  Teuchos::reduceAll(*comm, Teuchos::REDUCE_MAX, 1, &local_abs_row_sum_max, &global_abs_row_sum_max);
+  Teuchos::reduceAll(*comm, Teuchos::REDUCE_SUM, 1, &local_abs_row_sum_sum, &global_abs_row_sum_sum);
+  Teuchos::reduceAll(*comm, Teuchos::REDUCE_MIN, 1, &local_diag_min, &global_diag_min);
+  Teuchos::reduceAll(*comm, Teuchos::REDUCE_MAX, 1, &local_diag_max, &global_diag_max);
+  Teuchos::reduceAll(*comm, Teuchos::REDUCE_SUM, 1, &local_diag_sum, &global_diag_sum);
+  Teuchos::reduceAll(*comm, Teuchos::REDUCE_SUM, 1, &local_nonpos_diag, &global_nonpos_diag);
+  Teuchos::reduceAll(*comm, Teuchos::REDUCE_MAX, 1, &local_max_abs_entry, &global_max_abs_entry);
+
+  stats.valid = true;
+  stats.global_rows = static_cast<size_t>(global_rows_ll);
+  if (nglobal > 0) {
+    const double inv_rows = 1.0 / static_cast<double>(nglobal);
+    stats.row_sum_min = global_row_sum_min;
+    stats.row_sum_max = global_row_sum_max;
+    stats.row_sum_mean = global_row_sum_sum * inv_rows;
+    stats.abs_row_sum_min = global_abs_row_sum_min;
+    stats.abs_row_sum_max = global_abs_row_sum_max;
+    stats.abs_row_sum_mean = global_abs_row_sum_sum * inv_rows;
+    stats.diag_min = global_diag_min;
+    stats.diag_max = global_diag_max;
+    stats.diag_mean = global_diag_sum * inv_rows;
+  }
+  stats.nonpos_diag_count = static_cast<size_t>(global_nonpos_diag);
+  stats.max_abs_entry = global_max_abs_entry;
+
+  if (comm->getRank() == 0) {
+    const double row_ratio = (std::abs(stats.row_sum_min) > 0.0) ? stats.row_sum_max / std::abs(stats.row_sum_min) : 0.0;
+    const double abs_row_ratio = (stats.abs_row_sum_min > 0.0) ? stats.abs_row_sum_max / stats.abs_row_sum_min : 0.0;
+    std::cout << "[MetricOpStats] label=" << label
+              << " rows=" << stats.global_rows
+              << " row_sum(min,max,mean)=(" << stats.row_sum_min << ","
+              << stats.row_sum_max << "," << stats.row_sum_mean << ")"
+              << " row_sum_ratio_max_over_absmin=" << row_ratio
+              << " abs_row_sum(min,max,mean)=(" << stats.abs_row_sum_min << ","
+              << stats.abs_row_sum_max << "," << stats.abs_row_sum_mean << ")"
+              << " abs_row_sum_ratio_max_over_min=" << abs_row_ratio
+              << " diag(min,max,mean)=(" << stats.diag_min << ","
+              << stats.diag_max << "," << stats.diag_mean << ")"
+              << " nonpos_diag=" << stats.nonpos_diag_count
+              << " max_abs_entry=" << stats.max_abs_entry
+              << std::endl;
+  }
+
+  return stats;
 }

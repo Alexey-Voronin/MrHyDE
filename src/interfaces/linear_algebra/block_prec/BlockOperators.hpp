@@ -252,6 +252,68 @@ private:
   Teuchos::RCP<LA_Vector> invDiag_;
 };
 
+/** Wraps an inner Tpetra::Operator and applies a constant scalar scale either
+    BEFORE the inner apply (PreScale) or AFTER it (PostScale, the default).
+
+    Mathematically identical for a linear inner op, but floating-point cancellation
+    inside inner->apply() makes them numerically different:
+
+    - PostScale: Y = beta*Y + (alpha*scale) * (inner*X). No workspace. Best when
+      inner is a matvec with O(1) entries on a small input, because the matvec
+      accumulates O(1) sums with no subtractive cancellation, then the final
+      scalar multiply is exact per element.
+
+    - PreScale: workspace = scale*X (exact per-element multiply), then
+      Y = beta*Y + alpha * (inner*workspace). Best when inner is a direct
+      backsolve against an O(1)-entry matrix with a large-magnitude RHS whose
+      true solution is small in magnitude. In that case, each backsolve row
+          tmp_i = (b_i - sum_j L_ij tmp_j) / U_ii
+      suffers catastrophic cancellation between two large quantities.
+      Pre-scaling the RHS keeps the whole backsolve in the O(1) regime where
+      the cancellation only loses eps-level bits. */
+template<class Node>
+class ScaledOperator : public Tpetra::Operator<ScalarT, LO, GO, Node> {
+public:
+  using Types = BlockTypes<Node>;
+  using LA_Map = typename Types::Map;
+  using LA_MultiVector = typename Types::MultiVector;
+
+  enum class Mode { PostScale, PreScale };
+
+  ScaledOperator(const Teuchos::RCP<Tpetra::Operator<ScalarT, LO, GO, Node>> & inner,
+                 ScalarT scale,
+                 Mode mode = Mode::PostScale)
+    : inner_(inner), scale_(scale), mode_(mode) {}
+
+  Teuchos::RCP<const LA_Map> getDomainMap() const override { return inner_->getDomainMap(); }
+  Teuchos::RCP<const LA_Map> getRangeMap() const override { return inner_->getRangeMap(); }
+  bool hasTransposeApply() const override { return inner_->hasTransposeApply(); }
+
+  void apply(const LA_MultiVector & X, LA_MultiVector & Y,
+             Teuchos::ETransp mode = Teuchos::NO_TRANS,
+             ScalarT alpha = Teuchos::ScalarTraits<ScalarT>::one(),
+             ScalarT beta = Teuchos::ScalarTraits<ScalarT>::zero()) const override {
+    if (mode_ == Mode::PostScale) {
+      inner_->apply(X, Y, mode, alpha * scale_, beta);
+    } else {
+      if (workspace_.is_null() ||
+          !workspace_->getMap()->isSameAs(*X.getMap()) ||
+          workspace_->getNumVectors() != X.getNumVectors()) {
+        workspace_ = Teuchos::rcp(new LA_MultiVector(X.getMap(), X.getNumVectors()));
+      }
+      Teuchos::RCP<const LA_MultiVector> Xrcp = Teuchos::rcpFromRef(X);
+      workspace_->scale(scale_, *Xrcp);
+      inner_->apply(*workspace_, Y, mode, alpha, beta);
+    }
+  }
+
+private:
+  Teuchos::RCP<Tpetra::Operator<ScalarT, LO, GO, Node>> inner_;
+  ScalarT scale_;
+  Mode mode_;
+  mutable Teuchos::RCP<LA_MultiVector> workspace_;
+};
+
 /** Wraps an Amesos2 direct solver as a Tpetra::Operator for block-level inversion. */
 template<class Node>
 class DirectSolveOperator : public Tpetra::Operator<ScalarT, LO, GO, Node> {

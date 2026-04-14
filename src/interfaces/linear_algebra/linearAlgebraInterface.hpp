@@ -486,6 +486,25 @@ public:
    */
   vector_RCP extractLumpedDiagonal(const Teuchos::RCP<LA_CrsMatrix> & matrix, const bool use_lumped);
 
+  struct MatrixScaleStats {
+    bool valid = false;
+    size_t global_rows = 0;
+    double row_sum_min = 0.0;
+    double row_sum_max = 0.0;
+    double row_sum_mean = 0.0;
+    double abs_row_sum_min = 0.0;
+    double abs_row_sum_max = 0.0;
+    double abs_row_sum_mean = 0.0;
+    double diag_min = 0.0;
+    double diag_max = 0.0;
+    double diag_mean = 0.0;
+    size_t nonpos_diag_count = 0;
+    double max_abs_entry = 0.0;
+  };
+
+  MatrixScaleStats printMatrixScaleDiagnostics(const Teuchos::RCP<LA_CrsMatrix> & matrix,
+                                               const std::string & label) const;
+
   // ========================================================================================
   // Belos solver parameter list accessor
   // ========================================================================================

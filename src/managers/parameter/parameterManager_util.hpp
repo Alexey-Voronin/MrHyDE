@@ -6,6 +6,10 @@
  Questions? Contact Tim Wildey (tmwilde@sandia.gov) 
 ************************************************************************/
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 // ========================================================================================
 // ========================================================================================
 
@@ -384,27 +388,152 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
     alpha2 = analysis_list.get<ScalarT>("hcurl alpha2", alpha2);
   }
 
+  // Trick A: when alpha1 == alpha2, factor (M + K) with unit weights instead of
+  // (alpha*M + alpha*K). KLU roundoff then scales with ||M+K|| ~ O(1) instead of
+  // O(alpha), eliminating the Riesz metric noise floor that plateaus L-BFGS when
+  // alpha is large (e.g. 1e20). The assumption alpha1 == alpha2 means the factor
+  // alpha pulls out as a pure scalar: (alpha*(M+K))^{-1} = (1/alpha)*(M+K)^{-1}.
+  // We cache alpha in hcurlMetricScale_ and compensate at apply time.
+  ScalarT build_a1 = alpha1;
+  ScalarT build_a2 = alpha2;
+  hcurlMetricScale_ = static_cast<ScalarT>(1);
+  if (alpha1 == alpha2 && alpha1 != static_cast<ScalarT>(1)) {
+    build_a1 = static_cast<ScalarT>(1);
+    build_a2 = static_cast<ScalarT>(1);
+    hcurlMetricScale_ = alpha1;
+  }
+
   if (Comm->getRank() == 0 && verbosity >= 5) {
-    std::cout << "Building H(curl) operator: (" << alpha1 << "*M + " << alpha2 << "*K)" << std::endl;
+    std::cout << "Building H(curl) operator: (" << alpha1 << "*M + " << alpha2 << "*K)";
+    if (hcurlMetricScale_ != static_cast<ScalarT>(1)) {
+      std::cout << " [factored as (M+K); scale " << hcurlMetricScale_
+                << " applied at apply() time]";
+    }
+    std::cout << std::endl;
   }
 
   // Create a new empty matrix with the same graph structure
   auto hcurlMatrix = Teuchos::rcp(new LA_CrsMatrix(paramMass->getRowMap(),
                                                      paramMass->getGlobalMaxNumRowEntries()));
 
-  // Use Tpetra's matrix addition: C = alpha1*M + alpha2*K
+  // Use Tpetra's matrix addition: C = build_a1*M + build_a2*K
   // Note: both paramMass and paramStiffness must be fillComplete'd
-  Tpetra::MatrixMatrix::Add(*paramMass, false, alpha1, *paramStiffness, false, alpha2, hcurlMatrix);
-
-  // MatrixMatrix::Add does not call fillComplete, so we need to do it
-  hcurlMatrix->fillComplete(paramMass->getDomainMap(), paramMass->getRangeMap());
-  hcurlForwardOp = hcurlMatrix;
+  Tpetra::MatrixMatrix::Add(*paramMass, false, build_a1, *paramStiffness, false, build_a2, hcurlMatrix);
 
   std::string mass_type = "none";
   if (settings->isSublist("Analysis")) {
     auto& analysis_list = settings->sublist("Analysis");
     if (analysis_list.isParameter("parameter gradient preconditioner type")) {
       mass_type = analysis_list.get<std::string>("parameter gradient preconditioner type");
+    }
+  }
+
+  // MatrixMatrix::Add does not call fillComplete, so we need to do it
+  hcurlMatrix->fillComplete(paramMass->getDomainMap(), paramMass->getRangeMap());
+  hcurlForwardOp = hcurlMatrix;
+
+  {
+    auto ones = Teuchos::rcp(new LA_Vector(hcurlMatrix->getDomainMap()));
+    auto rowSums = Teuchos::rcp(new LA_Vector(hcurlMatrix->getRowMap()));
+    ones->putScalar(static_cast<ScalarT>(1.0));
+    hcurlMatrix->apply(*ones, *rowSums);
+    auto row_view = rowSums->getLocalViewHost(Tpetra::Access::ReadOnly);
+
+    auto diag = Teuchos::rcp(new LA_Vector(hcurlMatrix->getRowMap()));
+    hcurlMatrix->getLocalDiagCopy(*diag);
+    auto diag_view = diag->getLocalViewHost(Tpetra::Access::ReadOnly);
+
+    const size_t nlocal = hcurlMatrix->getLocalNumRows();
+    const size_t nglobal = hcurlMatrix->getGlobalNumRows();
+    double local_row_sum_min = std::numeric_limits<double>::infinity();
+    double local_row_sum_max = -std::numeric_limits<double>::infinity();
+    double local_row_sum_sum = 0.0;
+    double local_abs_row_sum_min = std::numeric_limits<double>::infinity();
+    double local_abs_row_sum_max = -std::numeric_limits<double>::infinity();
+    double local_abs_row_sum_sum = 0.0;
+    double local_diag_min = std::numeric_limits<double>::infinity();
+    double local_diag_max = -std::numeric_limits<double>::infinity();
+    double local_diag_sum = 0.0;
+    long long local_nonpos_diag = 0;
+    double local_max_abs_entry = 0.0;
+
+    for (size_t i = 0; i < nlocal; ++i) {
+      const double rs = static_cast<double>(row_view(i, 0));
+      local_row_sum_min = std::min(local_row_sum_min, rs);
+      local_row_sum_max = std::max(local_row_sum_max, rs);
+      local_row_sum_sum += rs;
+
+      typename LA_CrsMatrix::local_inds_host_view_type idx;
+      typename LA_CrsMatrix::values_host_view_type vals;
+      hcurlMatrix->getLocalRowView(i, idx, vals);
+      double abs_rs = 0.0;
+      for (size_t j = 0; j < idx.extent(0); ++j) {
+        const double av = std::abs(static_cast<double>(vals[j]));
+        abs_rs += av;
+        local_max_abs_entry = std::max(local_max_abs_entry, av);
+      }
+      local_abs_row_sum_min = std::min(local_abs_row_sum_min, abs_rs);
+      local_abs_row_sum_max = std::max(local_abs_row_sum_max, abs_rs);
+      local_abs_row_sum_sum += abs_rs;
+
+      const double dv = static_cast<double>(diag_view(i, 0));
+      local_diag_min = std::min(local_diag_min, dv);
+      local_diag_max = std::max(local_diag_max, dv);
+      local_diag_sum += dv;
+      if (dv <= 0.0) {
+        local_nonpos_diag += 1;
+      }
+    }
+
+    if (nlocal == 0) {
+      local_row_sum_min = 0.0;
+      local_row_sum_max = 0.0;
+      local_abs_row_sum_min = 0.0;
+      local_abs_row_sum_max = 0.0;
+      local_diag_min = 0.0;
+      local_diag_max = 0.0;
+    }
+
+    double global_row_sum_min = 0.0, global_row_sum_max = 0.0, global_row_sum_sum = 0.0;
+    double global_abs_row_sum_min = 0.0, global_abs_row_sum_max = 0.0, global_abs_row_sum_sum = 0.0;
+    double global_diag_min = 0.0, global_diag_max = 0.0, global_diag_sum = 0.0;
+    double global_max_abs_entry = 0.0;
+    long long global_nonpos_diag = 0;
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_MIN, 1, &local_row_sum_min, &global_row_sum_min);
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_MAX, 1, &local_row_sum_max, &global_row_sum_max);
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_SUM, 1, &local_row_sum_sum, &global_row_sum_sum);
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_MIN, 1, &local_abs_row_sum_min, &global_abs_row_sum_min);
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_MAX, 1, &local_abs_row_sum_max, &global_abs_row_sum_max);
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_SUM, 1, &local_abs_row_sum_sum, &global_abs_row_sum_sum);
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_MIN, 1, &local_diag_min, &global_diag_min);
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_MAX, 1, &local_diag_max, &global_diag_max);
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_SUM, 1, &local_diag_sum, &global_diag_sum);
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_SUM, 1, &local_nonpos_diag, &global_nonpos_diag);
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_MAX, 1, &local_max_abs_entry, &global_max_abs_entry);
+
+    if (Comm->getRank() == 0) {
+      const double inv_rows = (nglobal > 0) ? (1.0 / static_cast<double>(nglobal)) : 0.0;
+      const double row_mean = global_row_sum_sum * inv_rows;
+      const double abs_row_mean = global_abs_row_sum_sum * inv_rows;
+      const double diag_mean = global_diag_sum * inv_rows;
+      const double row_ratio = (std::abs(global_row_sum_min) > 0.0) ? global_row_sum_max / std::abs(global_row_sum_min) : 0.0;
+      const double abs_row_ratio = (global_abs_row_sum_min > 0.0) ? global_abs_row_sum_max / global_abs_row_sum_min : 0.0;
+      std::cout << "[MetricOpStats] label=Hcurl_H rows=" << nglobal
+                << " row_sum(min,max,mean)=(" << global_row_sum_min << ","
+                << global_row_sum_max << "," << row_mean << ")"
+                << " row_sum_ratio_max_over_absmin=" << row_ratio
+                << " abs_row_sum(min,max,mean)=(" << global_abs_row_sum_min << ","
+                << global_abs_row_sum_max << "," << abs_row_mean << ")"
+                << " abs_row_sum_ratio_max_over_min=" << abs_row_ratio
+                << " diag(min,max,mean)=(" << global_diag_min << ","
+                << global_diag_max << "," << diag_mean << ")"
+                << " nonpos_diag=" << global_nonpos_diag
+                << " max_abs_entry=" << global_max_abs_entry
+                << " alpha1=" << alpha1
+                << " alpha2=" << alpha2
+                << " hcurlMetricScale=" << hcurlMetricScale_
+                << " solver_type=" << mass_type
+                << std::endl;
     }
   }
 
@@ -461,6 +590,31 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
       "ParameterManager::buildHcurlOperators: Unsupported solver type for H(curl): " + mass_type);
   }
+
+  // Trick A wire-up: if we factored unit-weighted (M+K) instead of alpha*(M+K),
+  // wrap both operators so that callers transparently see the correct behavior:
+  //   hcurlForwardOp    callers expect alpha*(M+K)*x
+  //   hcurlInvOperator  callers expect (1/alpha)*(M+K)^{-1}*x
+  // This must happen after ALL branches above have assigned hcurlInvOperator.
+  // It covers sparse_direct, sparse_iterative, and lumped uniformly. The wrap
+  // is essential because MrHyDE_OptVector::dot()/dual() call the raw operator
+  // apply() directly (via analysisManager_solve.hpp setMassOperators), bypassing
+  // ParameterManager::applyHcurlInverse().
+  if (hcurlMetricScale_ != static_cast<ScalarT>(1)) {
+    using ScaledOp = block_prec::ScaledOperator<SolverNode>;
+    // Forward op alpha*(M+K)*x maps primal (O(1)) -> dual (O(alpha)).
+    // The inner matvec accumulates O(1) sums with no cancellation, then the
+    // scalar multiply by alpha is exact per element => PostScale.
+    hcurlForwardOp = Teuchos::rcp(new ScaledOp(
+        hcurlMatrix, hcurlMetricScale_, ScaledOp::Mode::PostScale));
+    // Inverse op (1/alpha)*(M+K)^{-1}*g maps dual (O(alpha)) -> primal (O(1)).
+    // The backsolve against O(1)-entry (M+K) with an O(alpha) RHS suffers
+    // catastrophic cancellation in each row update; PreScale collapses the
+    // RHS to O(1) first so the backsolve stays in the clean regime.
+    hcurlInvOperator = Teuchos::rcp(new ScaledOp(
+        hcurlInvOperator, static_cast<ScalarT>(1) / hcurlMetricScale_,
+        ScaledOp::Mode::PreScale));
+  }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -482,6 +636,8 @@ void ParameterManager<Node>::applyHcurlInverse(const vector_RCP & in, vector_RCP
     "ParameterManager::applyHcurlInverse: hcurlInvOperator is null. "
     "Call buildHcurlOperators() first.");
 
+  // hcurlInvOperator already folds the Trick A 1/alpha scale (if any) internally
+  // via ScaledOperator; callers see (alpha*(M+K))^{-1}*in regardless.
   hcurlInvOperator->apply(*in, *out);
 }
 

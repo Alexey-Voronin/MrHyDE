@@ -571,6 +571,7 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
 
   if (compute_matrix) {
     linalg->fillComplete(paramMass);
+    linalg->printMatrixScaleDiagnostics(paramMass, "ParamMass_M");
   }
 
   params->setParamMass(diagParamMass, paramMass);
@@ -627,6 +628,15 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
     }
 
     linalg->fillComplete(paramStiffness);
+    auto kStats = linalg->printMatrixScaleDiagnostics(paramStiffness, "ParamStiffness_K");
+
+    auto mStats = linalg->printMatrixScaleDiagnostics(paramMass, "ParamMass_M_reprint");
+    if (Comm->getRank() == 0 && mStats.valid && kStats.valid) {
+      const double max_ratio = (mStats.abs_row_sum_max > 0.0) ? kStats.abs_row_sum_max / mStats.abs_row_sum_max : 0.0;
+      const double mean_ratio = (mStats.abs_row_sum_mean > 0.0) ? kStats.abs_row_sum_mean / mStats.abs_row_sum_mean : 0.0;
+      std::cout << "[MetricOpStats] label=K_over_M abs_row_sum_ratio(max)=" << max_ratio
+                << " abs_row_sum_ratio(mean)=" << mean_ratio << std::endl;
+    }
 
     // Build combined H(curl) operators
     params->buildHcurlOperators(paramMass, paramStiffness);
