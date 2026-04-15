@@ -4,7 +4,6 @@
 # Copies each deck to input_rol.yaml; uses 8 MPI ranks.
 #
 
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 cd "$SCRIPT_DIR" || exit 1
 
@@ -24,8 +23,6 @@ fi
 
 echo "Using mrhyde link:   $MRHYDE_BIN"
 echo "Using mrhyde target: $MRHYDE_BIN_RESOLVED"
-
-
 
 shopt -s nullglob
 decks=(rol_decks/input_rol2_*.yaml)
@@ -48,7 +45,7 @@ for deck in "${decks[@]}"; do
   echo "Log file: $log"
 
   cp "$deck" input_rol.yaml
-  mpiexec -n 8 "$MRHYDE_BIN" >"$log" 2>&1
+  mpiexec -n 4 "$MRHYDE_BIN" >"$log" 2>&1
   ec=$?
 
   echo "exit_code=$ec" >>"$log"
