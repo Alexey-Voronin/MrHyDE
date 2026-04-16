@@ -9,5 +9,4 @@ mrhyde_alpha_a1e15_b1.log                1.3e-14      8.5e-16      8.9e-17      
 mrhyde_alpha_a1_b1.log                   1.1e-15      1.8e-16      7.5e-17      4.0e-17      2.1e-17      1.4e-17      1.0e-17      8.1e-18
 mrhyde_alpha_a1e5_b1.log                 2.5e-15      2.5e-16      9.7e-17      4.4e-17      2.6e-17      1.8e-17      1.3e-17      9.8e-18
 mrhyde_alpha_a1e8_b1.log                 2.2e-15      2.5e-16      1.1e-16      5.4e-17      3.3e-17      2.6e-17      1.5e-17      1.1e-17
-Saved plot: /Users/abvoron/repos/ACEM/code/mrhyde/MrHyDE/regression/maxwell/optimal_control/1D_long/lbfgs_test/alpha_abs/scan/qn_status_comparison.pdf
 Parsed datasets: 10
