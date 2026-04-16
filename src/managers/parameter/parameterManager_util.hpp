@@ -356,44 +356,70 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
       "ParameterManager::buildHcurlOperators: Both mass and stiffness matrices are required");
   }
 
-  // Build weighted (alpha1*M + alpha2*K) matrix for H(curl) Riesz map.
-  // Weights default to 1.0 but can be overridden from Analysis.
-  ScalarT alpha1 = 1.0;
-  ScalarT alpha2 = 1.0;
+  // -------------------------------------------------------------------------
+  // Compute auto-balanced Riesz-map weights from diagonal means of M and K.
+  //
+  // On Nedelec spaces, entries of K exceed those of M by a factor ~ 1/h^2
+  // So we set alpha1/alpha2 = mean(diag(K))/mean(diag(M))
+  // -------------------------------------------------------------------------
 
-  // Try to read weights from regularization sublists
-  if (settings->isSublist("Postprocess")) {
-    auto& postproc_list = settings->sublist("Postprocess");
-    if (postproc_list.isSublist("Objective functions")) {
-      auto& obj_list = postproc_list.sublist("Objective functions");
-      if (obj_list.isSublist("RegObj")) {
-        auto& regobj_list = obj_list.sublist("RegObj");
-        if (regobj_list.isSublist("Regularization functions")) {
-          auto& reg_list = regobj_list.sublist("Regularization functions");
-          if (reg_list.isSublist("l2reg")) {
-            alpha1 = reg_list.sublist("l2reg").get<ScalarT>("weight", 1.0);
-          }
-          if (reg_list.isSublist("curlreg")) {
-            alpha2 = reg_list.sublist("curlreg").get<ScalarT>("weight", 1.0);
-          }
-        }
+  // compute global mean(diag(M)) and mean(diag(K))
+  double auto_ratio = 1.0;
+  {
+    auto diagM = Teuchos::rcp(new LA_Vector(paramMass->getRowMap()));
+    auto diagK = Teuchos::rcp(new LA_Vector(paramStiffness->getRowMap()));
+    paramMass->getLocalDiagCopy(*diagM);
+    paramStiffness->getLocalDiagCopy(*diagK);
+
+    const size_t nlocal = paramMass->getLocalNumRows();
+    double local_diagM_sum = 0.0, local_diagK_sum = 0.0;
+    {
+      auto mview = diagM->getLocalViewHost(Tpetra::Access::ReadOnly);
+      auto kview = diagK->getLocalViewHost(Tpetra::Access::ReadOnly);
+      for (size_t i = 0; i < nlocal; ++i) {
+        local_diagM_sum += static_cast<double>(mview(i, 0));
+        local_diagK_sum += static_cast<double>(kview(i, 0));
       }
+    }
+
+    double global_diagM_sum = 0.0, global_diagK_sum = 0.0;
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_SUM, 1, &local_diagM_sum, &global_diagM_sum);
+    Teuchos::reduceAll(*Comm, Teuchos::REDUCE_SUM, 1, &local_diagK_sum, &global_diagK_sum);
+
+    const size_t nglobal = paramMass->getGlobalNumRows();
+    if (nglobal > 0 && global_diagM_sum > 0.0) {
+      const double mean_diagM = global_diagM_sum / static_cast<double>(nglobal);
+      const double mean_diagK = global_diagK_sum / static_cast<double>(nglobal);
+      auto_ratio = mean_diagK / mean_diagM;
+    }
+
+    if (Comm->getRank() == 0) {
+      std::cout << "[RieszAutoScale] mean(diag(K))/mean(diag(M)) = " << auto_ratio << std::endl;
     }
   }
 
-  // Allow direct override from Analysis section
+  // set Riesz-map weights.
+  // Default: auto-balanced (alpha1 = auto_ratio, alpha2 = 1).
+  // Override: set explicit "hcurl alpha1" / "hcurl alpha2" in rol2 the Analysis section.
+  ScalarT alpha1 = static_cast<ScalarT>(auto_ratio);
+  ScalarT alpha2 = static_cast<ScalarT>(1);
+  bool user_override = false;
+
   if (settings->isSublist("Analysis")) {
     auto& analysis_list = settings->sublist("Analysis");
-    alpha1 = analysis_list.get<ScalarT>("hcurl alpha1", alpha1);
-    alpha2 = analysis_list.get<ScalarT>("hcurl alpha2", alpha2);
+    if (analysis_list.isParameter("hcurl alpha1") || analysis_list.isParameter("hcurl alpha2")) {
+      alpha1 = analysis_list.get<ScalarT>("hcurl alpha1", static_cast<ScalarT>(1));
+      alpha2 = analysis_list.get<ScalarT>("hcurl alpha2", static_cast<ScalarT>(1));
+      user_override = true;
+    }
   }
 
-  // Trick A: when alpha1 == alpha2, factor (M + K) with unit weights instead of
-  // (alpha*M + alpha*K). KLU roundoff then scales with ||M+K|| ~ O(1) instead of
-  // O(alpha), eliminating the Riesz metric noise floor that plateaus L-BFGS when
-  // alpha is large (e.g. 1e20). The assumption alpha1 == alpha2 means the factor
-  // alpha pulls out as a pure scalar: (alpha*(M+K))^{-1} = (1/alpha)*(M+K)^{-1}.
-  // We cache alpha in hcurlMetricScale_ and compensate at apply time.
+  if (Comm->getRank() == 0) {
+    std::cout << "[RieszMap] alpha1=" << alpha1 << "  alpha2=" << alpha2
+              << "  mode=" << (user_override ? "user_override" : "auto_balanced")
+              << std::endl;
+  }
+
   ScalarT build_a1 = alpha1;
   ScalarT build_a2 = alpha2;
   hcurlMetricScale_ = static_cast<ScalarT>(1);
@@ -412,12 +438,9 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
     std::cout << std::endl;
   }
 
-  // Create a new empty matrix with the same graph structure
+  // Use Tpetra's matrix addition: C = build_a1*M + build_a2*K
   auto hcurlMatrix = Teuchos::rcp(new LA_CrsMatrix(paramMass->getRowMap(),
                                                      paramMass->getGlobalMaxNumRowEntries()));
-
-  // Use Tpetra's matrix addition: C = build_a1*M + build_a2*K
-  // Note: both paramMass and paramStiffness must be fillComplete'd
   Tpetra::MatrixMatrix::Add(*paramMass, false, build_a1, *paramStiffness, false, build_a2, hcurlMatrix);
 
   std::string mass_type = "none";
