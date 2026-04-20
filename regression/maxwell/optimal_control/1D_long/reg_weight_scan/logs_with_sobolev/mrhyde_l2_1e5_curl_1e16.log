@@ -1,0 +1,85 @@
+p=0 | CubeHexMesh: Building sub cells
+[MetricOpStats] ParamMass_M  (rows=4760)
+  row_sum       min=4.0404e-07  max=0.00198  mean=0.000659429  max/|min|=4900.5
+  |row_sum|     min=4.0404e-07  max=0.00198  mean=0.000659429  max/min=4900.5
+  diag          min=1.79574e-07  max=0.00088  mean=0.000293079  nonpos=0
+  max_abs_entry=0.00088
+[MetricOpStats] ParamStiffness_K  (rows=4760)
+  row_sum       min=-2.98023e-08  max=3.72529e-08  mean=-3.56199e-10  max/|min|=1.25
+  |row_sum|     min=7.92162e+07  max=2.64e+08  mean=1.93296e+08  max/min=3.33265
+  diag          min=1.32054e+07  max=5.28e+07  mean=3.5148e+07  nonpos=0
+  max_abs_entry=5.28e+07
+[MetricOpStats] ParamMass_M_reprint  (rows=4760)
+  row_sum       min=4.0404e-07  max=0.00198  mean=0.000659429  max/|min|=4900.5
+  |row_sum|     min=4.0404e-07  max=0.00198  mean=0.000659429  max/min=4900.5
+  diag          min=1.79574e-07  max=0.00088  mean=0.000293079  nonpos=0
+  max_abs_entry=0.00088
+[MetricOpStats] K_over_M
+  |row_sum| ratio  max=1.33333e+11  mean=2.93127e+11
+[RieszAutoScale] mean(diag(K))/mean(diag(M)) = 1.19927e+11
+[RieszMap] alpha1=1.19927e+11  alpha2=1  mode=auto_balanced
+[MetricOpStats] Hcurl_H  (rows=4760  alpha1=1.19927e+11  alpha2=1  scale=1  solver=sparse_direct)
+  row_sum       min=48455.2  max=2.37455e+08  mean=7.9083e+07  max/|min|=4900.5
+  |row_sum|     min=7.92323e+07  max=3.95887e+08  mean=2.37206e+08  max/min=4.99653
+  diag          min=1.32269e+07  max=1.58335e+08  mean=7.0296e+07  nonpos=0
+  max_abs_entry=1.58335e+08
+MrHyDE vector contract check (primal) errors: e[0]=0 e[1]=0 e[2]=0 e[3]=0 e[4]=0 e[5]=0 e[6]=0 e[7]=0 e[8]=0 e[9]=0 e[10]=0 e[11]=0 e[12]=0
+MrHyDE vector contract check (dual) errors: e[0]=0 e[1]=5.1089e-19 e[2]=0 e[3]=0 e[4]=0 e[5]=7.87625e-20 e[6]=1.56723e-19 e[7]=0 e[8]=0 e[9]=2.5411e-21 e[10]=4.44089e-16 e[11]=9.17834e-18 e[12]=2.13614e-15
+MrHyDE vector contract check: max_primal_err=0 max_dual_err=2.13614e-15 tol=1e-08
+
+Quasi-Newton Method with Limited-Memory BFGS
+Line Search: Cubic Interpolation satisfying Wolfe Conditions
+-------------------------------------------------------------------------------------------------------------
+Quasi-Newton status output definitions
+
+  iter     - Number of iterates (steps taken)
+  value    - Objective function value
+  gnorm    - Norm of the gradient
+  snorm    - Norm of the step (update to optimization vector)
+  alpha    - Line search step length
+  #fval    - Cumulative number of times the objective function was evaluated
+  #grad    - Cumulative number of times the gradient was computed
+  ls_#fval - Number of the times the objective function was evaluated during the line search
+  ls_#grad - Number of the times the gradient was evaluated during the line search
+-------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          alpha          #fval     #grad     ls_#fval  ls_#grad  
+  0     1.230816e-11   1.219414e-03   ---            ---            1         1         ---       ---       
+  1     1.094749e-12   2.976947e-04   5.959917e-08   4.887525e-05   8         2         6         0         
+  2     3.494698e-13   1.150692e-04   1.088592e-08   1.000000e+00   10        3         1         0         
+  3     1.300222e-13   5.864930e-05   8.749622e-09   1.000000e+00   12        4         1         0         
+  4     5.366859e-14   3.226965e-05   6.366977e-09   1.000000e+00   14        5         1         0         
+  5     2.735747e-14   2.924670e-05   5.852921e-09   1.000000e+00   16        6         1         0         
+  6     1.916136e-14   2.079917e-05   3.389605e-09   1.000000e+00   18        7         1         0         
+  7     1.478256e-14   9.964690e-06   1.026021e-09   1.000000e+00   20        8         1         0         
+  8     1.209901e-14   6.892603e-06   1.369252e-09   1.000000e+00   22        9         1         0         
+  9     1.033749e-14   6.334201e-06   1.683702e-09   1.000000e+00   24        10        1         0         
+  10    9.805813e-15   8.344943e-06   1.112342e-09   4.646506e-01   27        11        2         0         
+  11    9.259807e-15   3.065791e-06   7.479456e-10   1.000000e+00   29        12        1         0         
+  12    9.069852e-15   2.146614e-06   3.802062e-10   1.000000e+00   31        13        1         0         
+  13    8.899890e-15   1.943591e-06   5.052901e-10   1.000000e+00   33        14        1         0         
+  14    8.862829e-15   4.361715e-06   7.138110e-10   1.000000e+00   35        15        1         0         
+  15    8.721381e-15   1.536569e-06   1.864095e-10   1.000000e+00   37        16        1         0         
+  16    8.667322e-15   1.295859e-06   2.261614e-10   1.000000e+00   39        17        1         0         
+  17    8.604247e-15   1.707129e-06   5.022315e-10   1.000000e+00   41        18        1         0         
+  18    8.525384e-15   1.746134e-06   7.324895e-10   1.000000e+00   43        19        1         0         
+  19    8.510829e-15   2.700085e-06   5.872232e-10   3.993810e-01   46        20        2         0         
+  20    8.451620e-15   1.017798e-06   3.387113e-10   1.000000e+00   48        21        1         0         
+  21    8.427756e-15   9.793652e-07   2.238793e-10   1.000000e+00   50        22        1         0         
+  22    8.399053e-15   1.115156e-06   3.365030e-10   1.000000e+00   52        23        1         0         
+  23    8.374789e-15   1.577160e-06   6.186991e-10   1.000000e+00   54        24        1         0         
+  24    8.359051e-15   7.122715e-07   3.029301e-10   4.977062e-01   57        25        2         0         
+  25    8.351195e-15   5.420108e-07   1.497027e-10   1.000000e+00   59        26        1         0         
+  26    8.346364e-15   7.435422e-07   2.176032e-10   1.000000e+00   61        27        1         0         
+  27    8.341565e-15   9.419041e-07   2.528160e-10   1.000000e+00   63        28        1         0         
+  28    8.341484e-15   8.554425e-07   3.348481e-10   4.603704e-01   66        29        2         0         
+  29    8.338004e-15   9.323451e-07   4.328712e-10   1.000000e+00   68        30        1         0         
+  30    8.337444e-15   8.171516e-07   1.562512e-10   1.903707e-01   72        31        3         0         
+  31    8.333943e-15   7.876962e-07   4.744966e-10   1.000000e+00   74        32        1         0         
+  32    8.333501e-15   6.839344e-07   7.086378e-11   1.557759e-01   78        33        3         0         
+  33    8.326493e-15   5.957765e-07   2.536545e-10   1.000000e+00   80        34        1         0         
+  34    8.322247e-15   6.403533e-07   2.043831e-10   1.000000e+00   82        35        1         0         
+  35    8.318682e-15   4.137340e-07   2.118280e-10   1.000000e+00   84        36        1         0         
+  36    8.318574e-15   4.197339e-07   4.183108e-11   1.594468e-01   88        37        3         0         
+  37    8.318574e-15   4.197339e-07   0.000000e+00   0.000000e+00   109       38        20        0         
+Optimization Terminated with Status: Step Tolerance Met
+exit_code=0

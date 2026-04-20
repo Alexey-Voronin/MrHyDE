@@ -1,0 +1,49 @@
+p=0 | CubeHexMesh: Building sub cells
+[MetricOpStats] ParamMass_M  (rows=4760)
+  row_sum       min=4.0404e-07  max=0.00198  mean=0.000659429  max/|min|=4900.5
+  |row_sum|     min=4.0404e-07  max=0.00198  mean=0.000659429  max/min=4900.5
+  diag          min=1.79574e-07  max=0.00088  mean=0.000293079  nonpos=0
+  max_abs_entry=0.00088
+MrHyDE vector contract check (primal) errors: e[0]=0 e[1]=0 e[2]=0 e[3]=0 e[4]=0 e[5]=0 e[6]=0 e[7]=0 e[8]=0 e[9]=0 e[10]=0 e[11]=0 e[12]=0
+MrHyDE vector contract check (dual) errors: e[0]=0 e[1]=7.08644e-16 e[2]=0 e[3]=0 e[4]=0 e[5]=1.25089e-16 e[6]=2.39689e-16 e[7]=0 e[8]=0 e[9]=6.0082e-16 e[10]=0 e[11]=0 e[12]=0
+MrHyDE vector contract check: max_primal_err=0 max_dual_err=7.08644e-16 tol=1e-08
+
+Quasi-Newton Method with Limited-Memory BFGS
+Line Search: Cubic Interpolation satisfying Wolfe Conditions
+-------------------------------------------------------------------------------------------------------------
+Quasi-Newton status output definitions
+
+  iter     - Number of iterates (steps taken)
+  value    - Objective function value
+  gnorm    - Norm of the gradient
+  snorm    - Norm of the step (update to optimization vector)
+  alpha    - Line search step length
+  #fval    - Cumulative number of times the objective function was evaluated
+  #grad    - Cumulative number of times the gradient was computed
+  ls_#fval - Number of the times the objective function was evaluated during the line search
+  ls_#grad - Number of the times the gradient was evaluated during the line search
+-------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          alpha          #fval     #grad     ls_#fval  ls_#grad  
+  0     1.230816e-11   2.431688e+00   ---            ---            1         1         ---       ---       
+  1     1.230776e-11   1.872240e+00   1.177367e-15   4.841768e-16   19        2         17        0         
+  2     1.230764e-11   1.589049e+00   1.738507e-15   4.258641e-01   22        3         2         0         
+  3     1.230760e-11   1.533948e+00   1.014783e-15   1.394216e-01   26        4         3         0         
+  4     1.230757e-11   1.442831e+00   5.406342e-16   5.771732e-02   31        5         4         0         
+  5     1.230753e-11   1.383457e+00   5.679225e-16   5.482120e-02   36        6         4         0         
+  6     1.230751e-11   1.307144e+00   6.023679e-16   5.211326e-02   41        7         4         0         
+  7     1.230750e-11   1.234918e+00   5.478386e-16   4.944922e-02   46        8         4         0         
+  8     1.230750e-11   1.201168e+00   2.225919e-16   1.940497e-02   52        9         5         0         
+  9     1.230750e-11   1.189867e+00   9.490566e-17   8.411869e-03   59        10        6         0         
+  10    1.230750e-11   1.165066e+00   2.193504e-16   1.834907e-02   65        11        5         0         
+  11    1.230750e-11   1.150978e+00   1.013037e-16   8.607709e-03   72        12        6         0         
+  12    1.230750e-11   1.146441e+00   4.063874e-17   3.341011e-03   80        13        7         0         
+  13    1.230749e-11   1.134473e+00   1.043350e-16   8.435470e-03   87        14        6         0         
+  14    1.230749e-11   1.122633e+00   9.707508e-17   7.537495e-03   94        15        6         0         
+  15    1.230749e-11   1.117201e+00   4.575267e-17   3.655454e-03   102       16        7         0         
+  16    1.230749e-11   1.115408e+00   1.767577e-17   1.313568e-03   111       17        8         0         
+  17    1.230749e-11   1.110011e+00   4.791965e-17   3.770568e-03   119       18        7         0         
+  18    1.230749e-11   1.105648e+00   3.931111e-17   2.818256e-03   127       19        7         0         
+  19    1.230749e-11   1.103349e+00   2.129426e-17   1.675080e-03   136       20        8         0         
+  20    1.230749e-11   1.103349e+00   0.000000e+00   0.000000e+00   157       21        20        0         
+Optimization Terminated with Status: Step Tolerance Met
+exit_code=0
