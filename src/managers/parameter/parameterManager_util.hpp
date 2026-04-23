@@ -420,28 +420,15 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
               << std::endl;
   }
 
-  ScalarT build_a1 = alpha1;
-  ScalarT build_a2 = alpha2;
-  hcurlMetricScale_ = static_cast<ScalarT>(1);
-  if (alpha1 == alpha2 && alpha1 != static_cast<ScalarT>(1)) {
-    build_a1 = static_cast<ScalarT>(1);
-    build_a2 = static_cast<ScalarT>(1);
-    hcurlMetricScale_ = alpha1;
-  }
-
   if (Comm->getRank() == 0 && verbosity >= 5) {
-    std::cout << "Building H(curl) operator: (" << alpha1 << "*M + " << alpha2 << "*K)";
-    if (hcurlMetricScale_ != static_cast<ScalarT>(1)) {
-      std::cout << " [factored as (M+K); scale " << hcurlMetricScale_
-                << " applied at apply() time]";
-    }
-    std::cout << std::endl;
+    std::cout << "Building H(curl) operator: (" << alpha1 << "*M + " << alpha2 << "*K)"
+              << std::endl;
   }
 
-  // Use Tpetra's matrix addition: C = build_a1*M + build_a2*K
+  // Use Tpetra's matrix addition: C = alpha1*M + alpha2*K
   auto hcurlMatrix = Teuchos::rcp(new LA_CrsMatrix(paramMass->getRowMap(),
                                                      paramMass->getGlobalMaxNumRowEntries()));
-  Tpetra::MatrixMatrix::Add(*paramMass, false, build_a1, *paramStiffness, false, build_a2, hcurlMatrix);
+  Tpetra::MatrixMatrix::Add(*paramMass, false, alpha1, *paramStiffness, false, alpha2, hcurlMatrix);
 
   std::string mass_type = "none";
   if (settings->isSublist("Analysis")) {
@@ -543,7 +530,6 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
       const double abs_row_ratio = (global_abs_row_sum_min > 0.0) ? global_abs_row_sum_max / global_abs_row_sum_min : 0.0;
       std::cout << "[MetricOpStats] Hcurl_H  (rows=" << nglobal
                 << "  alpha1=" << alpha1 << "  alpha2=" << alpha2
-                << "  scale=" << hcurlMetricScale_
                 << "  solver=" << mass_type << ")\n"
                 << "  row_sum       min=" << global_row_sum_min
                 << "  max=" << global_row_sum_max
@@ -626,30 +612,6 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
       "ParameterManager::buildHcurlOperators: Unsupported solver type for H(curl): " + mass_type);
   }
 
-  // Trick A wire-up: if we factored unit-weighted (M+K) instead of alpha*(M+K),
-  // wrap both operators so that callers transparently see the correct behavior:
-  //   hcurlForwardOp    callers expect alpha*(M+K)*x
-  //   hcurlInvOperator  callers expect (1/alpha)*(M+K)^{-1}*x
-  // This must happen after ALL branches above have assigned hcurlInvOperator.
-  // It covers sparse_direct, sparse_iterative, and lumped uniformly. The wrap
-  // is essential because MrHyDE_OptVector::dot()/dual() call the raw operator
-  // apply() directly (via analysisManager_solve.hpp setMassOperators), bypassing
-  // ParameterManager::applyHcurlInverse().
-  if (hcurlMetricScale_ != static_cast<ScalarT>(1)) {
-    using ScaledOp = block_prec::ScaledOperator<SolverNode>;
-    // Forward op alpha*(M+K)*x maps primal (O(1)) -> dual (O(alpha)).
-    // The inner matvec accumulates O(1) sums with no cancellation, then the
-    // scalar multiply by alpha is exact per element => PostScale.
-    hcurlForwardOp = Teuchos::rcp(new ScaledOp(
-        hcurlMatrix, hcurlMetricScale_, ScaledOp::Mode::PostScale));
-    // Inverse op (1/alpha)*(M+K)^{-1}*g maps dual (O(alpha)) -> primal (O(1)).
-    // The backsolve against O(1)-entry (M+K) with an O(alpha) RHS suffers
-    // catastrophic cancellation in each row update; PreScale collapses the
-    // RHS to O(1) first so the backsolve stays in the clean regime.
-    hcurlInvOperator = Teuchos::rcp(new ScaledOp(
-        hcurlInvOperator, static_cast<ScalarT>(1) / hcurlMetricScale_,
-        ScaledOp::Mode::PreScale));
-  }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -671,8 +633,6 @@ void ParameterManager<Node>::applyHcurlInverse(const vector_RCP & in, vector_RCP
     "ParameterManager::applyHcurlInverse: hcurlInvOperator is null. "
     "Call buildHcurlOperators() first.");
 
-  // hcurlInvOperator already folds the Trick A 1/alpha scale (if any) internally
-  // via ScaledOperator; callers see (alpha*(M+K))^{-1}*in regardless.
   hcurlInvOperator->apply(*in, *out);
 }
 
