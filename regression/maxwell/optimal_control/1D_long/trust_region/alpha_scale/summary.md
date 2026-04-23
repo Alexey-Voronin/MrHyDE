@@ -9,7 +9,7 @@ All runs use at most 50 inner CG iterations per trust-region step.
 | Log file | alpha1 (a) | alpha2 (b) | Iters | Final objective | Final gnorm | #fval | #grad |
 |---|---|---|---|---|---|---|---|
 | `mrhyde_auto.log` | 1.20e11 (auto) | 1 | 50 | 2.95e-20 | 8.13e-10 | 51 | 51 |
-| `mrhyde_no_scale.log` | M only | -- | 50 | 3.65e-20 | 5.27e-06 | 51 | 51 |
+| `mrhyde_no_scale.log` | P=I | -- | 50 | 3.65e-20 | 5.27e-06 | 51 | 51 |
 | `mrhyde_alpha_a1e11_b1.log` | 1e11 | 1 | 50 | 3.76e-20 | 8.56e-10 | 51 | 51 |
 | `mrhyde_alpha_a1e13_b1.log` | 1e13 | 1 | 50 | 6.02e-20 | 8.83e-10 | 51 | 51 |
 | `mrhyde_alpha_a1e1_b1e-11.log` | 10 | 1e-11 | 50 | 1.10e-19 | 1.61e-03 | 51 | 51 |
