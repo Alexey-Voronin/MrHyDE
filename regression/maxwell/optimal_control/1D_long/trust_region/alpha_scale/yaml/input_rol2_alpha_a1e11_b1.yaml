@@ -1,0 +1,51 @@
+%YAML 1.1
+---
+# Alpha sweep: (alpha1=1e11, alpha2=1) -- M-heavy, aggressive
+# H = 1e11*M + 1*K  (alpha1*M ~ 1e0, K ~ 1e0; balanced)
+# cond(H) reduced vs (1,1); expect later crossover
+ANONYMOUS:
+  Analysis:
+    analysis type: ROL2
+    hcurl alpha1: 1.0e11
+    hcurl alpha2: 1.0
+    parameter gradient preconditioner type: sparse_direct
+    ROL2:
+      General:
+        Output Level: 3
+        Disable source on final output: false
+        Variable Objective Function: false
+        Scale for Epsilon Active Sets: 1.0
+        FD Scale: 1.0
+        FD Check Use Ones Vector: false
+        Do grad+hessvec check: false
+        Bound Optimization Variables: false
+        Inexact Objective Function: false
+        Inexact Gradient: false
+        Inexact Hessian-Times-A-Vector: false
+        Projected Gradient Criticality Measure: false
+        HessVec Precond Mode: dual
+        Krylov:
+          Type: Conjugate Gradients
+          Absolute Tolerance: 1.0e-14
+          Relative Tolerance: 1.0e-10
+          Iteration Limit: 20
+      Step:
+        Type: Trust Region
+        Trust Region:
+          Subproblem Solver: Truncated CG
+          Initial Radius: 1.0e-0
+          Maximum Radius: 1.0e+3
+          Step Acceptance Threshold: 5.0e-02
+          Radius Shrinking Threshold: 5.0e-02
+          Radius Growing Threshold: 9.0e-01
+          Radius Shrinking Rate (Negative rho): 6.25e-02
+          Radius Shrinking Rate (Positive rho): 2.50e-01
+          Radius Growing Rate: 10.0
+          Safeguard Size: 1.0e+01
+      Status Test:
+        Gradient Tolerance: 1.0e-6
+        Use Relative Tolerances: true
+        Constraint Tolerance: 1.0e-08
+        Step Tolerance: 1.0e-30
+        Iteration Limit: 50
+...
