@@ -837,6 +837,29 @@ public:
     return std::sqrt(val);
   }
 
+  // Euclidean dot product ignoring mass operators.
+  ScalarT euclideanDot(const ROL::Vector<ScalarT> &x) const {
+    const MrHyDE_OptVector &xs = dynamic_cast<const MrHyDE_OptVector&>(x);
+    ScalarT val(0);
+    if (field_vec.size() > 0) {
+      const auto& xs_f = xs.getField();
+      for (size_t i=0; i<field_vec.size(); ++i) {
+        if ( field_vec[i] != ROL::nullPtr ) {
+          val += field_vec[i]->dot(*(xs_f[i]));
+        }
+      }
+    }
+    if (scalar_vec.size() > 0) {
+      const auto& xs_s = xs.getParameter();
+      for (size_t i=0; i<scalar_vec.size(); ++i) {
+        if ( scalar_vec[i] != ROL::nullPtr ) {
+          val += scalar_vec[i]->dot(*(xs_s[i]));
+        }
+      }
+    }
+    return val;
+  }
+
   // Euclidean norm ignoring mass operators. Used for FD step size computation
   // where metric-weighted norms would distort the finite-difference scaling.
   ScalarT euclideanNorm() const {
