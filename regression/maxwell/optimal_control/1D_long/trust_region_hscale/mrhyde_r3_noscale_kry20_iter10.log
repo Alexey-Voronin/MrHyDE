@@ -1,0 +1,464 @@
+p= 0 | CubeHexMesh: Building sub cells
+[MetricOpStats] ParamMass_M  (rows=304256)
+  row_sum       min=1.0101e-07  max=0.000495  mean=0.000165065  max/|min|=4900.5
+  |row_sum|     min=1.0101e-07  max=0.000495  mean=0.000165065  max/min=4900.5
+  diag          min=4.48934e-08  max=0.00022  mean=7.33623e-05  nonpos=0
+  max_abs_entry=0.00022
+MrHyDE vector contract check (primal) errors: e[0]=0 e[1]=0 e[2]=0 e[3]=0 e[4]=0 e[5]=0 e[6]=0 e[7]=0 e[8]=0 e[9]=0 e[10]=0 e[11]=0 e[12]=0
+MrHyDE vector contract check (dual) errors: e[0]=0 e[1]=3.18954e-16 e[2]=0 e[3]=0 e[4]=0 e[5]=5.58018e-17 e[6]=1.13503e-16 e[7]=0 e[8]=0 e[9]=6.64851e-16 e[10]=3.33067e-16 e[11]=0 e[12]=0
+MrHyDE vector contract check: max_primal_err=0 max_dual_err=6.64851e-16 tol=1e-08
+
+Truncated CG Trust-Region Solver
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  0     1.242149e-11   1.096501e+00   ---            1.000000e+00   1         1         ---       ---       ---       
+  In TrustRegionUtilities::analyzeRatio
+    Current objective function value:        1.24215e-11
+    New objective function value:            4.85021e-12
+    Actual reduction:                        7.57128e-12
+    Predicted reduction:                     2.74142e-11
+    Safeguard:                               2.22045e-15
+    Actual reduction with safeguard:         7.5735e-12
+    Predicted reduction with safeguard:      2.74164e-11
+    Ratio of actual and predicted reduction: 0.27624
+    Trust-region flag:                       0
+
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  1     4.850206e-12   8.649495e-01   1.101083e-10   1.000000e+00   2         2         0         20        1         
+  In TrustRegionUtilities::analyzeRatio
+    Current objective function value:        4.85021e-12
+    New objective function value:            1.17218e-11
+    Actual reduction:                        -6.87163e-12
+    Predicted reduction:                     1.19947e-11
+    Safeguard:                               2.22045e-15
+    Actual reduction with safeguard:         -6.86941e-12
+    Predicted reduction with safeguard:      1.19969e-11
+    Ratio of actual and predicted reduction: -0.572597
+    Trust-region flag:                       2
+
+  In TrustRegionUtilities::interpolateRadius
+    Interpolation model value:               -7.14451e-12
+    Interpolation step length:               0.115837
+
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  2     4.850206e-12   8.649495e-01   8.162696e-11   2.040674e-11   3         2         2         20        1         
+  In TrustRegionUtilities::analyzeRatio
+    Current objective function value:        4.85021e-12
+    New objective function value:            3.50899e-12
+    Actual reduction:                        1.34121e-12
+    Predicted reduction:                     4.43024e-12
+    Safeguard:                               2.22045e-15
+    Actual reduction with safeguard:         1.34343e-12
+    Predicted reduction with safeguard:      4.43246e-12
+    Ratio of actual and predicted reduction: 0.30309
+    Trust-region flag:                       0
+
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  3     3.508992e-12   7.357971e-01   2.040674e-11   2.040674e-11   4         3         0         7         3         
+  In TrustRegionUtilities::analyzeRatio
+    Current objective function value:        3.50899e-12
+    New objective function value:            4.1805e-12
+    Actual reduction:                        -6.71511e-13
+    Predicted reduction:                     3.64501e-12
+    Safeguard:                               2.22045e-15
+    Actual reduction with safeguard:         -6.6929e-13
+    Predicted reduction with safeguard:      3.64723e-12
+    Ratio of actual and predicted reduction: -0.183506
+    Trust-region flag:                       2
+
+  In TrustRegionUtilities::interpolateRadius
+    Interpolation model value:               -1.3602e-13
+    Interpolation step length:               0.143836
+
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  4     3.508992e-12   7.357971e-01   2.040674e-11   2.935227e-12   5         3         2         9         3         
+  In TrustRegionUtilities::analyzeRatio
+    Current objective function value:        3.50899e-12
+    New objective function value:            3.10674e-12
+    Actual reduction:                        4.02251e-13
+    Predicted reduction:                     9.2006e-13
+    Safeguard:                               2.22045e-15
+    Actual reduction with safeguard:         4.04472e-13
+    Predicted reduction with safeguard:      9.22281e-13
+    Ratio of actual and predicted reduction: 0.438556
+    Trust-region flag:                       0
+
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  5     3.106741e-12   4.410618e-01   2.935227e-12   2.935227e-12   6         4         0         3         3         
+  In TrustRegionUtilities::analyzeRatio
+    Current objective function value:        3.10674e-12
+    New objective function value:            3.04546e-12
+    Actual reduction:                        6.12814e-14
+    Predicted reduction:                     6.08853e-13
+    Safeguard:                               2.22045e-15
+    Actual reduction with safeguard:         6.35019e-14
+    Predicted reduction with safeguard:      6.11073e-13
+    Ratio of actual and predicted reduction: 0.103919
+    Trust-region flag:                       0
+
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  6     3.045459e-12   4.792311e-01   2.935227e-12   2.935227e-12   7         5         0         3         3         
+  In TrustRegionUtilities::analyzeRatio
+    Current objective function value:        3.04546e-12
+    New objective function value:            3.10577e-12
+    Actual reduction:                        -6.03158e-14
+    Predicted reduction:                     5.32131e-13
+    Safeguard:                               2.22045e-15
+    Actual reduction with safeguard:         -5.80954e-14
+    Predicted reduction with safeguard:      5.34352e-13
+    Ratio of actual and predicted reduction: -0.108721
+    Trust-region flag:                       2
+
+  In TrustRegionUtilities::interpolateRadius
+    Interpolation model value:               2.51333e-12
+    Interpolation step length:               0.148355
+
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  7     3.045459e-12   4.792311e-01   2.935227e-12   4.354560e-13   8         5         2         4         3         
+  In TrustRegionUtilities::analyzeRatio
+    Current objective function value:        3.04546e-12
+    New objective function value:            2.98588e-12
+    Actual reduction:                        5.95789e-14
+    Predicted reduction:                     1.18761e-13
+    Safeguard:                               2.22045e-15
+    Actual reduction with safeguard:         6.17993e-14
+    Predicted reduction with safeguard:      1.20981e-13
+    Ratio of actual and predicted reduction: 0.510818
+    Trust-region flag:                       0
+
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  8     2.985880e-12   3.310648e-01   4.354560e-13   4.354560e-13   9         6         0         1         3         
+  In TrustRegionUtilities::analyzeRatio
+    Current objective function value:        2.98588e-12
+    New objective function value:            2.9792e-12
+    Actual reduction:                        6.68494e-15
+    Predicted reduction:                     8.23528e-14
+    Safeguard:                               2.22045e-15
+    Actual reduction with safeguard:         8.90538e-15
+    Predicted reduction with safeguard:      8.45732e-14
+    Ratio of actual and predicted reduction: 0.105298
+    Trust-region flag:                       0
+
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  9     2.979195e-12   3.430093e-01   4.354560e-13   4.354560e-13   10        7         0         2         3         
+  In TrustRegionUtilities::analyzeRatio
+    Current objective function value:        2.9792e-12
+    New objective function value:            2.96315e-12
+    Actual reduction:                        1.60439e-14
+    Predicted reduction:                     9.15722e-14
+    Safeguard:                               2.22045e-15
+    Actual reduction with safeguard:         1.82644e-14
+    Predicted reduction with safeguard:      9.37927e-14
+    Ratio of actual and predicted reduction: 0.194731
+    Trust-region flag:                       0
+
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  10    2.963151e-12   2.872603e-01   4.354560e-13   4.354560e-13   11        8         0         2         3         
+Optimization Terminated with Status: Iteration Limit Exceeded

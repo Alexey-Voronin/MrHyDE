@@ -1,0 +1,106 @@
+p= 0 | CubeHexMesh: Building sub cells
+[MetricOpStats] ParamMass_M  (rows=304256)
+  row_sum       min=1.0101e-07  max=0.000495  mean=0.000165065  max/|min|=4900.5
+  |row_sum|     min=1.0101e-07  max=0.000495  mean=0.000165065  max/min=4900.5
+  diag          min=4.48934e-08  max=0.00022  mean=7.33623e-05  nonpos=0
+  max_abs_entry=0.00022
+[MetricOpStats] ParamStiffness_K  (rows=304256)
+  row_sum       min=-1.93715e-07  max=1.49012e-07  mean=-5.95236e-09  max/|min|=0.769231
+  |row_sum|     min=3.16865e+08  max=1.056e+09  mean=7.7416e+08  max/min=3.33265
+  diag          min=5.28215e+07  max=2.112e+08  mean=1.40769e+08  nonpos=0
+  max_abs_entry=2.112e+08
+[MetricOpStats] ParamMass_M_reprint  (rows=304256)
+  row_sum       min=1.0101e-07  max=0.000495  mean=0.000165065  max/|min|=4900.5
+  |row_sum|     min=1.0101e-07  max=0.000495  mean=0.000165065  max/min=4900.5
+  diag          min=4.48934e-08  max=0.00022  mean=7.33623e-05  nonpos=0
+  max_abs_entry=0.00022
+[MetricOpStats] K_over_M
+  |row_sum| ratio  max=2.13333e+12  mean=4.69003e+12
+[RieszAutoScale] mean(diag(K))/mean(diag(M)) = 1.91883e+12
+[RieszMap] alpha1=1.91883e+12  alpha2=1  mode=auto_balanced
+[MetricOpStats] Hcurl_H  (rows=304256  alpha1=1.91883e+12  alpha2=1  solver=sparse_direct)
+  row_sum       min=193821  max=9.49819e+08  mean=3.16731e+08  max/|min|=4900.5
+  |row_sum|     min=3.16929e+08  max=1.58355e+09  mean=9.50022e+08  max/min=4.99653
+  diag          min=5.29077e+07  max=6.33342e+08  mean=2.81539e+08  nonpos=0
+  max_abs_entry=6.33342e+08
+MrHyDE vector contract check (primal) errors: e[0]=0 e[1]=0 e[2]=0 e[3]=0 e[4]=0 e[5]=0 e[6]=0 e[7]=0 e[8]=0 e[9]=0 e[10]=0 e[11]=0 e[12]=0
+MrHyDE vector contract check (dual) errors: e[0]=0 e[1]=1.26405e-19 e[2]=0 e[3]=0 e[4]=0 e[5]=2.31516e-20 e[6]=4.70186e-20 e[7]=0 e[8]=0 e[9]=5.29396e-23 e[10]=3.33067e-16 e[11]=1.20149e-17 e[12]=1.90295e-15
+MrHyDE vector contract check: max_primal_err=0 max_dual_err=1.90295e-15 tol=1e-08
+
+Truncated CG Trust-Region Solver
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  0     1.242149e-11   5.003777e-04   ---            1.000000e-01   1         1         ---       ---       ---       
+  In TrustRegionUtilities::analyzeRatio
+    Current objective function value:        1.24215e-11
+    New objective function value:            0.0199301
+    Actual reduction:                        -0.0199301
+    Predicted reduction:                     1.75572e-06
+    Safeguard:                               2.22045e-15
+    Actual reduction with safeguard:         -0.0199301
+    Predicted reduction with safeguard:      1.75572e-06
+    Ratio of actual and predicted reduction: -11351.5
+    Trust-region flag:                       2
+
+  In TrustRegionUtilities::interpolateRadius
+    Interpolation model value:               -1.75571e-06
+    Interpolation step length:               1.4107e-05
+
+------------------------------------------------------------------------------------------------------------------
+Trust-Region status output definitions
+
+  iter    - Number of iterates (steps taken)
+  value   - Objective function value
+  gnorm   - Norm of the gradient
+  snorm   - Norm of the step (update to optimization vector)
+  delta   - Trust-Region radius
+  #fval   - Number of times the objective function was evaluated
+  #grad   - Number of times the gradient was computed
+
+  tr_flag - Trust-Region flag
+    0 - Both actual and predicted reductions are positive (success)
+    1 - Actual reduction is positive and predicted reduction is negative (impossible)
+    2 - Actual reduction is nonpositive and predicted reduction is positive
+    3 - Actual reduction is nonpositive and predicted reduction is negative (impossible)
+    4 - Actual and/or predicted reduction is a NaN
+    5 - Subproblem solution did not produce sufficient decrease
+
+  iterCG - Number of Truncated CG iterations
+
+  flagGC - Trust-Region Truncated CG flag
+    0 - Residual tolerance met
+    1 - Iteration limit exceeded
+    2 - Negative curvature detected
+    3 - Trust-Region radius exceeded
+    4 - Initial right hand side is zero
+------------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          delta          #fval     #grad     tr_flag   iterCG    flagCG    
+  1     1.242149e-11   5.003777e-04   1.000000e-01   6.250000e-03   2         1         2         23        3         
+Optimization Terminated with Status: Iteration Limit Exceeded
