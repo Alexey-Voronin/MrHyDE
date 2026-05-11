@@ -98,12 +98,12 @@ ANONYMOUS:
             type: integrated
             location: volume
             function: '0.5*(ctrl_current[x]*ctrl_current[x])+0.5*(ctrl_current[y]*ctrl_current[y])+0.5*(ctrl_current[z]*ctrl_current[z])'
-            weight: 1.0e5
+            weight: 0.0 #1.0e5 #34
           curlreg: 
             type: integrated
             location: volume
             function: '0.5*(curl(ctrl_current)[x]*curl(ctrl_current)[x])+0.5*(curl(ctrl_current)[y]*curl(ctrl_current)[y])+0.5*(curl(ctrl_current)[z]*curl(ctrl_current)[z])'
-            weight: 1.0e5
+            weight: 0.0 #1.0e5 #@34
     Extra cell fields:
       Jx: 'current x'
       Jy: 'current y'

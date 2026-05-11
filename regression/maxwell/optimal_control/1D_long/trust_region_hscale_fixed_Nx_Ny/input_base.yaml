@@ -3,7 +3,7 @@
 ANONYMOUS:
   debug level: 0
   verbosity: 0
-  Mesh input file: yaml/mesh_r2.yaml
+  Mesh input file: MESH_FILE_PLACEHOLDER
   Physics:
     modules: maxwell
     active controls: true
@@ -69,7 +69,7 @@ ANONYMOUS:
       "relaxation: backward mode": false
       "relaxation: sweeps": 2
     dump jacobian: false
-  Analysis input file: yaml/rol_noscale.yaml
+  Analysis input file: ROL_FILE_PLACEHOLDER
   Postprocess:
     write solution: false
     write frequency: 1

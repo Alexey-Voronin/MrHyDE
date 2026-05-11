@@ -1,7 +1,5 @@
 %YAML 1.1
 ---
-# 3x refinement in Z only (pseudo-1D problem).
-# NX=2, NY=2, NZ=132 = 528 elements. Layout 1x1x66 -> 66 MPI ranks, 2 elem/rank.
 ANONYMOUS:
   Mesh:
     dimension: 3
@@ -14,7 +12,7 @@ ANONYMOUS:
     zmax: 40.0e-6
     NX: 2
     NY: 2
-    NZ: 132
+    NZ: 44
     Xprocs: 1
     Yprocs: 1
     Zprocs: 44

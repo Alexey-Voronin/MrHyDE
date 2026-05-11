@@ -1,7 +1,5 @@
 %YAML 1.1
 ---
-# Auto Riesz scaling: hcurl alpha1 / alpha2 omitted, so MrHyDE computes them
-# automatically (mean(diag(K))/mean(diag(M))).
 ANONYMOUS:
   Analysis:
     analysis type: ROL2
