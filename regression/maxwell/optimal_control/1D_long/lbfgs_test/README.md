@@ -1,24 +1,5 @@
 # LBFGS Metric-Norm Study Summary
 
-## Workflow and Data Collection
-
-1. Deck setup:
-   - Study decks are stored in `rol_decks/`.
-   - the rest of the decks are shared `input.yaml` and `other_decks`
-2. Run collection:
-   - `bash run_roldecks.sh` copies each deck to `input_rol.yaml` and launches `mrhyde`.
-3. Diagnostics (top of each log):
-   - `[MetricOpStats]` reports operator scale for `M`, `K`, and `H = alpha1*M + alpha2*K`.
-     - Use `abs_row_sum` and `K_over_M` for magnitude comparison.
-   - `MrHyDE vector contract check` calls `ROL::Vector::checkVector(...)` on both primal and dual vectors to validate vector-space/duality consistency, with tolerance `1e-8`.
-   - Representative standard metric run (`direct`, `alpha1=alpha2=1e5`):
-     - `M abs_row_sum_mean=6.59429e-4`
-     - `K abs_row_sum_mean=1.93296e8`
-     - `K_over_M abs_row_sum_ratio(mean)=2.93127e11` (`max=1.33333e11`)
-     - `H abs_row_sum_mean=1.93296e8`
-     - `max_dual_err` is typically `1e-15` to `1e-12` (well below `1e-8`)
-4. Plot generation:
-   - `plot_qn_status.py` generates `qn_status_comparison.pdf` in each study directory.
 
 ## Main Takeaways
 
