@@ -28,4 +28,4 @@ Final L-BFGS state (last reported iteration) per run:
 
 ## Convergence plot
 
-[![qn_status_comparison](logs/qn_status_comparison.pdf)](logs/qn_status_comparison.pdf)
+![qn_status_comparison](logs/qn_status_comparison.pdf)
