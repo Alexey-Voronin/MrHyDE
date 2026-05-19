@@ -1,0 +1,67 @@
+p=0 | CubeHexMesh: Building sub cells
+[MetricOpStats] ParamMass_M  (rows=4760)
+  row_sum       min=4.0404e-07  max=0.00198  mean=0.000659429  max/|min|=4900.5
+  |row_sum|     min=4.0404e-07  max=0.00198  mean=0.000659429  max/min=4900.5
+  diag          min=1.79574e-07  max=0.00088  mean=0.000293079  nonpos=0
+  max_abs_entry=0.00088
+[MetricOpStats] ParamStiffness_K  (rows=4760)
+  row_sum       min=-2.98023e-08  max=3.72529e-08  mean=-3.56199e-10  max/|min|=1.25
+  |row_sum|     min=7.92162e+07  max=2.64e+08  mean=1.93296e+08  max/min=3.33265
+  diag          min=1.32054e+07  max=5.28e+07  mean=3.5148e+07  nonpos=0
+  max_abs_entry=5.28e+07
+[MetricOpStats] ParamMass_M_reprint  (rows=4760)
+  row_sum       min=4.0404e-07  max=0.00198  mean=0.000659429  max/|min|=4900.5
+  |row_sum|     min=4.0404e-07  max=0.00198  mean=0.000659429  max/min=4900.5
+  diag          min=1.79574e-07  max=0.00088  mean=0.000293079  nonpos=0
+  max_abs_entry=0.00088
+[MetricOpStats] K_over_M
+  |row_sum| ratio  max=1.33333e+11  mean=2.93127e+11
+[RieszAutoScale] mean(diag(K))/mean(diag(M)) = 1.19927e+11
+[RieszMap] alpha1=0  alpha2=100000  mode=user_override
+[MetricOpStats] Hcurl_H  (rows=4760  alpha1=0  alpha2=100000  scale=1  solver=sparse_direct)
+  row_sum       min=-0.00488281  max=0.00390625  mean=-4.68372e-06  max/|min|=0.8
+  |row_sum|     min=7.92162e+12  max=2.64e+13  mean=1.93296e+13  max/min=3.33265
+  diag          min=1.32054e+12  max=5.28e+12  mean=3.5148e+12  nonpos=0
+  max_abs_entry=5.28e+12
+MrHyDE vector contract check (primal) errors: e[0]=0 e[1]=0 e[2]=0 e[3]=0 e[4]=0 e[5]=0 e[6]=0 e[7]=0 e[8]=0 e[9]=0 e[10]=0 e[11]=0 e[12]=0
+MrHyDE vector contract check (dual) errors: e[0]=0 e[1]=nan e[2]=0 e[3]=0 e[4]=0 e[5]=nan e[6]=nan e[7]=0 e[8]=0 e[9]=2.97268e-25 e[10]=5.32907e-15 e[11]=5.34169e-09 e[12]=2.26556e-09
+MrHyDE vector contract check: max_primal_err=0 max_dual_err=5.34169e-09 tol=1e-08
+
+Quasi-Newton Method with Limited-Memory BFGS
+Line Search: Cubic Interpolation satisfying Wolfe Conditions
+-------------------------------------------------------------------------------------------------------------
+Quasi-Newton status output definitions
+
+  iter     - Number of iterates (steps taken)
+  value    - Objective function value
+  gnorm    - Norm of the gradient
+  snorm    - Norm of the step (update to optimization vector)
+  alpha    - Line search step length
+  #fval    - Cumulative number of times the objective function was evaluated
+  #grad    - Cumulative number of times the gradient was computed
+  ls_#fval - Number of the times the objective function was evaluated during the line search
+  ls_#grad - Number of the times the gradient was evaluated during the line search
+-------------------------------------------------------------------------------------------------------------
+  iter  value          gnorm          snorm          alpha          #fval     #grad     ls_#fval  ls_#grad  
+  0     1.230816e-11   6.069200e-06   ---            ---            1         1         ---       ---       
+  1     7.288811e-12   4.550958e-06   6.069200e-06   1.000000e+00   3         2         1         0         
+  2     3.686542e-13   6.496436e-07   1.926833e-05   1.000000e+00   5         3         1         0         
+  3     3.143958e-13   1.039842e-06   2.998554e-06   1.000000e+00   7         4         1         0         
+  4     1.527189e-13   4.530628e-07   1.153910e-06   1.000000e+00   9         5         1         0         
+  5     7.902863e-14   2.279677e-07   1.969228e-06   1.000000e+00   11        6         1         0         
+  6     5.524088e-14   2.065043e-07   1.308133e-06   1.000000e+00   13        7         1         0         
+  7     2.148158e-14   1.732478e-07   2.545226e-06   1.000000e+00   15        8         1         0         
+  8     1.085333e-14   1.002865e-07   1.709151e-06   1.000000e+00   17        9         1         0         
+  9     6.558983e-15   6.718189e-08   5.243489e-07   1.000000e+00   19        10        1         0         
+  10    4.131812e-15   5.058752e-08   6.737166e-07   1.000000e+00   21        11        1         0         
+  11    2.633240e-15   4.738257e-08   7.817500e-07   1.000000e+00   23        12        1         0         
+  12    2.243460e-15   5.559774e-08   8.833635e-07   1.000000e+00   25        13        1         0         
+  13    1.335649e-15   2.979953e-08   5.717075e-07   1.000000e+00   27        14        1         0         
+  14    1.089623e-15   2.349164e-08   8.694051e-07   1.000000e+00   29        15        1         0         
+  15    1.023533e-15   1.818944e-08   6.507745e-07   1.000000e+00   31        16        1         0         
+  16    9.628930e-16   1.191657e-08   1.402138e-07   1.000000e+00   33        17        1         0         
+  17    8.642068e-16   1.364659e-08   4.183287e-07   1.000000e+00   35        18        1         0         
+  18    7.822043e-16   2.060300e-08   1.018355e-07   1.000000e+00   37        19        1         0         
+  19    7.168798e-16   1.228228e-08   nan            1.000000e+00   39        20        1         0         
+Optimization Terminated with Status: Step and/or Gradient Returned NaN
+exit_code=0
