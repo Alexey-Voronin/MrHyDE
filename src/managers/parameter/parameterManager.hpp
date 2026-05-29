@@ -199,6 +199,21 @@ namespace MrHyDE {
      *  Converts dual-space gradients to H(curl) Sobolev gradients. */
     void applyHcurlInverse(const vector_RCP & in, vector_RCP & out) const;
 
+    /** @brief Parameter mass matrix M. */
+    matrix_RCP getParamMassMatrix()      const { return paramMassMatrix_; }
+
+    /** @brief Parameter stiffness matrix K. */
+    matrix_RCP getParamStiffnessMatrix() const { return paramStiffnessMatrix_; }
+
+    /** @brief alpha1 weight in H = alpha1*M + alpha2*K. */
+    ScalarT getHcurlAlpha1() const { return hcurl_alpha1_; }
+
+    /** @brief alpha2 weight in H = alpha1*M + alpha2*K. */
+    ScalarT getHcurlAlpha2() const { return hcurl_alpha2_; }
+
+    /** @brief Retain M, K for diagnostics without changing the optimizer's inner product. */
+    void retainParamMatricesForDiagnostics(matrix_RCP paramMass, matrix_RCP paramStiffness);
+
 
     /** @brief Releases stored memory and cleans up data structures. */
     void purgeMemory();
@@ -347,6 +362,11 @@ namespace MrHyDE {
     // For H(curl) preconditioning: (M + K) and (M + K)^{-1}
     Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> hcurlForwardOp;
     Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> hcurlInvOperator;
+
+    matrix_RCP paramMassMatrix_;
+    matrix_RCP paramStiffnessMatrix_;
+    ScalarT hcurl_alpha1_ = static_cast<ScalarT>(0);
+    ScalarT hcurl_alpha2_ = static_cast<ScalarT>(0);
 
     void buildMassOperators(Teuchos::RCP<LA_MultiVector> diagParamMass, matrix_RCP paramMass);
     void buildHcurlOperators(matrix_RCP paramMass, matrix_RCP paramStiffness);

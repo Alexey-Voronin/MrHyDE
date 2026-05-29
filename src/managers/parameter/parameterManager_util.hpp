@@ -335,6 +335,18 @@ void ParameterManager<Node>::applyMassInverse(const vector_RCP & in, vector_RCP 
 /////////////////////////////////////////////////////////////////////////////////////////////
 
 template<class Node>
+void ParameterManager<Node>::retainParamMatricesForDiagnostics(matrix_RCP paramMass,
+                                                                matrix_RCP paramStiffness) {
+  // Diagnostics-only matrix retention path.
+  paramMassMatrix_      = paramMass;
+  paramStiffnessMatrix_ = paramStiffness;
+  hcurl_alpha1_         = static_cast<ScalarT>(1);
+  hcurl_alpha2_         = static_cast<ScalarT>(1);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+template<class Node>
 void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RCP paramStiffness) {
 
   using LA_CrsMatrix = Tpetra::CrsMatrix<ScalarT, LO, GO, SolverNode>;
@@ -424,6 +436,12 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
     std::cout << "Building H(curl) operator: (" << alpha1 << "*M + " << alpha2 << "*K)"
               << std::endl;
   }
+
+  // Cache matrices and Sobolev weights for diagnostics.
+  paramMassMatrix_      = paramMass;
+  paramStiffnessMatrix_ = paramStiffness;
+  hcurl_alpha1_         = alpha1;
+  hcurl_alpha2_         = alpha2;
 
   // Use Tpetra's matrix addition: C = alpha1*M + alpha2*K
   auto hcurlMatrix = Teuchos::rcp(new LA_CrsMatrix(paramMass->getRowMap(),

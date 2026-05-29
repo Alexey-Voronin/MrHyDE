@@ -45,6 +45,14 @@ namespace ROL {
     Teuchos::RCP<ParameterManager<SolverNode> > params;
     PrecondMode precondMode_ = PrecondMode::Dual;
     bool didVectorContractCheck_ = false;
+
+    // Riesz energy diagnostics state.
+    bool rieszDiag_ = false;
+    int rieszDiagLastIter_ = -1;
+    Teuchos::RCP<std::ofstream> rieszDiagOut_;
+    Teuchos::RCP<MrHyDE_OptVector> lastDualGrad_;
+    bool lastDualGradFresh_ = false;
+
     Teuchos::RCP<Teuchos::Time> valuetimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::Objective::value()");
     Teuchos::RCP<Teuchos::Time> gradienttimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::Objective::gradient()");
 
@@ -183,6 +191,17 @@ namespace ROL {
       sens.zero();
       solver->adjointModel(sens);
       runVectorContractCheckOnce(Params, g);
+
+      if (rieszDiag_) {
+        if (lastDualGrad_.is_null()) {
+          ROL::Ptr<Vector<Real>> clone = sens.clone();
+          lastDualGrad_ = Teuchos::rcp_dynamic_cast<MrHyDE_OptVector>(clone);
+        }
+        if (!lastDualGrad_.is_null()) {
+          lastDualGrad_->set(sens);
+          lastDualGradFresh_ = true;
+        }
+      }
     }
     
     bool checkNewParams(const Vector<Real> &Params) {
@@ -254,7 +273,125 @@ namespace ROL {
         Pv.set(v.dual());
       }
     }
-    
+
+    void setRieszDiagnostics(bool enable, const std::string & path) {
+      rieszDiag_ = enable;
+      if (!rieszDiag_) {
+        rieszDiagOut_ = Teuchos::null;
+        lastDualGrad_ = Teuchos::null;
+        return;
+      }
+      if (isRootRank()) {
+        rieszDiagOut_ = Teuchos::rcp(new std::ofstream(path));
+        if (rieszDiagOut_->is_open()) {
+          rieszDiagOut_->precision(8);
+          (*rieszDiagOut_) << std::scientific;
+          // alpha1=alpha2=1 is ambiguous; setup logs disambiguate.
+          (*rieszDiagOut_) << "iter,gMg,gKg,zMz,zKz,ratio_g,ratio_z,alpha1,alpha2\n";
+          rieszDiagOut_->flush();
+        } else {
+          std::cout << "MrHyDE: WARNING could not open riesz diagnostics file '"
+                    << path << "'" << std::endl;
+          rieszDiagOut_ = Teuchos::null;
+        }
+      }
+    }
+
+    // Keep 2-arg update() visible for hessVec.
+    using Objective<Real>::update;
+
+    // Log only Initial/Accept updates.
+    void update(const Vector<Real> & Params, UpdateType type, int iter = -1) override {
+      Objective<Real>::update(Params, type, iter);
+      if (!rieszDiag_) return;
+      if (type != UpdateType::Initial && type != UpdateType::Accept) return;
+      if (iter == rieszDiagLastIter_) return;
+      rieszDiagLastIter_ = iter;
+      logRieszEnergies(Params, iter);
+    }
+
+    void logRieszEnergies(const Vector<Real> & z_vec, int iter) {
+      auto M = params->getParamMassMatrix();
+      auto K = params->getParamStiffnessMatrix();
+      if (M.is_null() || K.is_null()) return;
+
+      const MrHyDE_OptVector & z =
+          Teuchos::dyn_cast<const MrHyDE_OptVector>(const_cast<Vector<Real> &>(z_vec));
+      const auto & zfields = z.getField();
+
+      // Iter 0 has no cached gradient; compute z energies only.
+      // apply/dot are collective; all ranks enter, root writes output.
+      if (!lastDualGradFresh_ || lastDualGrad_.is_null()) {
+        ScalarT zMz0 = 0.0, zKz0 = 0.0;
+        using Multi = Tpetra::MultiVector<ScalarT,LO,GO,SolverNode>;
+        Teuchos::Array<typename Teuchos::ScalarTraits<ScalarT>::magnitudeType> dotprod(1);
+        for (size_t b = 0; b < zfields.size(); ++b) {
+          auto zb = zfields[b]->getVector();
+          if (zb.is_null()) continue;
+          if (zb->getMap()->getGlobalNumElements() != M->getRowMap()->getGlobalNumElements()) continue;
+          auto tmp = Teuchos::rcp(new Multi(M->getRangeMap(), zb->getNumVectors()));
+          M->apply(*zb, *tmp); zb->dot(*tmp, dotprod()); for (size_t c=0;c<dotprod.size();++c) zMz0 += dotprod[c];
+          K->apply(*zb, *tmp); zb->dot(*tmp, dotprod()); for (size_t c=0;c<dotprod.size();++c) zKz0 += dotprod[c];
+        }
+        if (isRootRank() && !rieszDiagOut_.is_null()) {
+          const double rz = (zMz0 > 0.0) ? static_cast<double>(zKz0/zMz0)
+                                            : std::numeric_limits<double>::quiet_NaN();
+          (*rieszDiagOut_) << iter << ",nan,nan,"
+                           << zMz0 << "," << zKz0 << ","
+                           << "nan," << rz << ","
+                           << params->getHcurlAlpha1() << ","
+                           << params->getHcurlAlpha2() << "\n";
+          rieszDiagOut_->flush();
+        }
+        return;
+      }
+      const auto & gfields = lastDualGrad_->getField();
+
+      using Multi = Tpetra::MultiVector<ScalarT,LO,GO,SolverNode>;
+      Teuchos::Array<typename Teuchos::ScalarTraits<ScalarT>::magnitudeType> dotprod(1);
+
+      ScalarT gMg = 0.0, gKg = 0.0, zMz = 0.0, zKz = 0.0;
+      const size_t nblocks = std::min(zfields.size(), gfields.size());
+      for (size_t b = 0; b < nblocks; ++b) {
+        auto zb = zfields[b]->getVector();
+        auto gb = gfields[b]->getVector();
+        if (zb.is_null() || gb.is_null()) continue;
+        if (zb->getMap()->getGlobalNumElements() != M->getRowMap()->getGlobalNumElements()) continue;
+
+        auto tmp = Teuchos::rcp(new Multi(M->getRangeMap(), zb->getNumVectors()));
+
+        M->apply(*gb, *tmp);
+        gb->dot(*tmp, dotprod());
+        for (size_t c = 0; c < dotprod.size(); ++c) gMg += dotprod[c];
+
+        K->apply(*gb, *tmp);
+        gb->dot(*tmp, dotprod());
+        for (size_t c = 0; c < dotprod.size(); ++c) gKg += dotprod[c];
+
+        M->apply(*zb, *tmp);
+        zb->dot(*tmp, dotprod());
+        for (size_t c = 0; c < dotprod.size(); ++c) zMz += dotprod[c];
+
+        K->apply(*zb, *tmp);
+        zb->dot(*tmp, dotprod());
+        for (size_t c = 0; c < dotprod.size(); ++c) zKz += dotprod[c];
+      }
+
+      if (isRootRank() && !rieszDiagOut_.is_null()) {
+        const double ratio_g = (gMg > 0.0) ? static_cast<double>(gKg / gMg)
+                                            : std::numeric_limits<double>::quiet_NaN();
+        const double ratio_z = (zMz > 0.0) ? static_cast<double>(zKz / zMz)
+                                            : std::numeric_limits<double>::quiet_NaN();
+        (*rieszDiagOut_) << iter << ","
+                         << gMg << "," << gKg << ","
+                         << zMz << "," << zKz << ","
+                         << ratio_g << "," << ratio_z << ","
+                         << params->getHcurlAlpha1() << ","
+                         << params->getHcurlAlpha2() << "\n";
+        rieszDiagOut_->flush();
+      }
+    }
+
     //print out Hessian (estimated via component-wise FD; to get inverse covariance in linear-Gaussian Bayesian inverse problem)
     void printHess(const string & filename, const Vector<Real> & xin, const int & commrank){
       StdVector<Real> x = Teuchos::dyn_cast<StdVector<Real> >(const_cast<Vector<Real> &>(xin));
