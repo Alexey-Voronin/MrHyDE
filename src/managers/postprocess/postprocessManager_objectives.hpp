@@ -598,23 +598,35 @@ void PostprocessManager<Node>::reportObjective(ScalarT &objectiveval)
     }
     else
     {
+      // Neumaier sum reduces long-series accumulation error.
+      ScalarT comp = 0.0;
       // Start with t=1 to ignore initial condition
       for (size_t t = 1; t < objectives[r].objective_times.size(); ++t)
       {
         ScalarT gcontrib = 0.0;
         ScalarT lcontrib = objectives[r].objective_values[t];
         Teuchos::reduceAll(*Comm, Teuchos::REDUCE_SUM, 1, &lcontrib, &gcontrib);
-        
+
         ScalarT dt = 1.0;
-        
+
         dt = objectives[r].objective_times[t] - objectives[r].objective_times[t - 1];
-        
+
         if (objectives[r].type != "sensors")
         {
           gcontrib *= dt;
         }
-        value += gcontrib;
+        ScalarT tsum = value + gcontrib;
+        if (std::abs(value) >= std::abs(gcontrib))
+        {
+          comp += (value - tsum) + gcontrib;
+        }
+        else
+        {
+          comp += (gcontrib - tsum) + value;
+        }
+        value = tsum;
       }
+      value += comp;
     }
     if (objectives[r].type == "integrated response")
     {
