@@ -199,6 +199,24 @@ namespace MrHyDE {
      *  Converts dual-space gradients to H(curl) Sobolev gradients. */
     void applyHcurlInverse(const vector_RCP & in, vector_RCP & out) const;
 
+    /** @brief Returns the parameter mass matrix M retained by buildHcurlOperators(). */
+    matrix_RCP getParamMassMatrix()      const { return paramMassMatrix_; }
+
+    /** @brief Returns the parameter stiffness matrix K retained by buildHcurlOperators(). */
+    matrix_RCP getParamStiffnessMatrix() const { return paramStiffnessMatrix_; }
+
+    /** @brief Returns the resolved alpha1 weight from H = alpha1*M + alpha2*K. */
+    ScalarT getHcurlAlpha1() const { return hcurl_alpha1_; }
+
+    /** @brief Returns the resolved alpha2 weight from H = alpha1*M + alpha2*K. */
+    ScalarT getHcurlAlpha2() const { return hcurl_alpha2_; }
+
+    /** @brief Retain M and K for Riesz diagnostics without building the H(curl)
+     *  inverse operator. Used when the optimizer runs in the Euclidean inner
+     *  product but the user still wants the gMg/gKg/zMz/zKz CSV for comparison.
+     *  Pointer copies only -- no collective work, no inner-product change. */
+    void retainParamMatricesForDiagnostics(matrix_RCP paramMass, matrix_RCP paramStiffness);
+
 
     /** @brief Releases stored memory and cleans up data structures. */
     void purgeMemory();
@@ -347,6 +365,13 @@ namespace MrHyDE {
     // For H(curl) preconditioning: (M + K) and (M + K)^{-1}
     Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> hcurlForwardOp;
     Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode>> hcurlInvOperator;
+
+    // Retained M and K (and resolved alpha1, alpha2) for diagnostics and future
+    // phase-based Riesz updates. Populated by buildHcurlOperators().
+    matrix_RCP paramMassMatrix_;
+    matrix_RCP paramStiffnessMatrix_;
+    ScalarT hcurl_alpha1_ = static_cast<ScalarT>(0);
+    ScalarT hcurl_alpha2_ = static_cast<ScalarT>(0);
 
     void buildMassOperators(Teuchos::RCP<LA_MultiVector> diagParamMass, matrix_RCP paramMass);
     void buildHcurlOperators(matrix_RCP paramMass, matrix_RCP paramStiffness);
