@@ -576,7 +576,6 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
 
   params->setParamMass(diagParamMass, paramMass);
 
-  // Check if we need H(curl) preconditioning or diagnostics-only K assembly
   std::string mass_type = "none";
   bool riesz_diag_assemble = false;
   if (settings->isSublist("Analysis")) {
@@ -587,11 +586,6 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
     riesz_diag_assemble = analysis_list.get<bool>("riesz diagnostics assemble matrices", false);
   }
 
-  // Check if any discretized parameters are HCURL type. We assemble K whenever
-  // an HCURL parameter exists and either (a) the Riesz preconditioner is on
-  // or (b) the user asked for diagnostics-only assembly via
-  // "riesz diagnostics assemble matrices: true". The H(curl) inverse operator
-  // is built only in case (a).
   bool has_hcurl_param = false;
   if (params->discretized_param_basis_types.size() > 0) {
     for (size_t i = 0; i < params->discretized_param_basis_types.size(); ++i) {
@@ -601,6 +595,7 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
       }
     }
   }
+  // Assemble K for Sobolev inverse or diagnostics retention.
   const bool need_hcurl_inv = has_hcurl_param && (mass_type != "none");
   const bool need_K         = has_hcurl_param && (need_hcurl_inv || riesz_diag_assemble);
 
@@ -649,14 +644,10 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
     }
 
     if (need_hcurl_inv) {
-      // Build combined H(curl) operators -- this also retains M, K, and the
-      // resolved alphas for the Riesz diagnostics CSV.
       params->buildHcurlOperators(paramMass, paramStiffness);
       debugger->print("**** Finished building H(curl) operators");
     } else {
-      // Diagnostics-only: retain M and K so logRieszEnergies can run, but
-      // don't build the H(curl) inverse operator -- the optimizer stays in
-      // the Euclidean inner product.
+      // Retain M and K for diagnostics; optimizer stays Euclidean.
       params->retainParamMatricesForDiagnostics(paramMass, paramStiffness);
       if (Comm->getRank() == 0) {
         std::cout << "[RieszDiagnostics] M and K retained for diagnostics; "

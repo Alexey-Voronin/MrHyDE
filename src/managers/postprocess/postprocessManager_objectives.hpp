@@ -598,10 +598,7 @@ void PostprocessManager<Node>::reportObjective(ScalarT &objectiveval)
     }
     else
     {
-      // Neumaier compensated sum over timesteps: with O(1000) terms the
-      // naive `value += gcontrib` loses ~log10(N) digits, which sets the
-      // floor that breaks the L-BFGS line search on long-time-horizon
-      // optimal-control runs (see lbfgs_ht_scale_rerun for context).
+      // Neumaier sum reduces long-series accumulation error.
       ScalarT comp = 0.0;
       // Start with t=1 to ignore initial condition
       for (size_t t = 1; t < objectives[r].objective_times.size(); ++t)

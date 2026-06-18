@@ -337,11 +337,7 @@ void ParameterManager<Node>::applyMassInverse(const vector_RCP & in, vector_RCP 
 template<class Node>
 void ParameterManager<Node>::retainParamMatricesForDiagnostics(matrix_RCP paramMass,
                                                                 matrix_RCP paramStiffness) {
-  // Pointer copies only. Leaves hcurlForwardOp / hcurlInvOperator untouched so
-  // the optimizer keeps its Euclidean inner product; the matrices become
-  // visible to MrHyDE_Objective::logRieszEnergies through the existing
-  // getParamMassMatrix / getParamStiffnessMatrix accessors. Alphas are set to
-  // 1 to indicate "no Riesz weighting" in the CSV.
+  // Diagnostics-only matrix retention path.
   paramMassMatrix_      = paramMass;
   paramStiffnessMatrix_ = paramStiffness;
   hcurl_alpha1_         = static_cast<ScalarT>(1);
@@ -441,9 +437,7 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
               << std::endl;
   }
 
-  // Retain M, K, and the resolved alphas for diagnostics (riesz diagnostics
-  // CSV) and future phase-based Riesz updates. Pointer copies only -- no
-  // additional storage cost.
+  // Cache matrices and Sobolev weights for diagnostics.
   paramMassMatrix_      = paramMass;
   paramStiffnessMatrix_ = paramStiffness;
   hcurl_alpha1_         = alpha1;

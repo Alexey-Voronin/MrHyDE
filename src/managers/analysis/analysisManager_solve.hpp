@@ -626,8 +626,6 @@ void AnalysisManager::ROL2Solve()
   // Discretized mass must be assembled before OptVector so ParameterManager can build operators.
   solver_->setupDiscretizedParamMass();
 
-  // Optional per-iter Riesz energy diagnostics. Wires up the objective's CSV
-  // writer after M and K are assembled but before the optimizer runs.
   {
     auto & analysis_list = settings_->sublist("Analysis");
     const bool riesz_diag = analysis_list.get<bool>("riesz diagnostics", false);
