@@ -200,6 +200,9 @@ namespace MrHyDE {
     void applyHcurlInverse(const vector_RCP & in, vector_RCP & out) const;
 
 
+    /** @brief Parameter mass matrix M. */
+    matrix_RCP getParamMassMatrix() const { return paramMassMatrix_; }
+
     /** @brief Parameter stiffness matrix K. */
     matrix_RCP getParamStiffnessMatrix() const { return paramStiffnessMatrix_; }
 
