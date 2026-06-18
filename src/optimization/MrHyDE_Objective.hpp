@@ -287,7 +287,9 @@ namespace ROL {
           rieszDiagOut_->precision(8);
           (*rieszDiagOut_) << std::scientific;
           // alpha1=alpha2=1 is ambiguous; setup logs disambiguate.
-          (*rieszDiagOut_) << "iter,gMg,gKg,zMz,zKz,ratio_g,ratio_z,alpha1,alpha2\n";
+          (*rieszDiagOut_) << "iter,gMg,gKg,gEuclid2,zMz,zKz,ratio_g,ratio_z,"
+                              "gpMgp,gpKgp,gpEuclid2,ratio_gp,"
+                              "alpha1,alpha2\n";
           rieszDiagOut_->flush();
         } else {
           std::cout << "MrHyDE: WARNING could not open riesz diagnostics file '"
@@ -336,9 +338,10 @@ namespace ROL {
         if (isRootRank() && !rieszDiagOut_.is_null()) {
           const double rz = (zMz0 > 0.0) ? static_cast<double>(zKz0/zMz0)
                                             : std::numeric_limits<double>::quiet_NaN();
-          (*rieszDiagOut_) << iter << ",nan,nan,"
+          (*rieszDiagOut_) << iter << ",nan,nan,nan,"
                            << zMz0 << "," << zKz0 << ","
                            << "nan," << rz << ","
+                           << "nan,nan,nan,nan,"
                            << params->getHcurlAlpha1() << ","
                            << params->getHcurlAlpha2() << "\n";
           rieszDiagOut_->flush();
@@ -350,7 +353,7 @@ namespace ROL {
       using Multi = Tpetra::MultiVector<ScalarT,LO,GO,SolverNode>;
       Teuchos::Array<typename Teuchos::ScalarTraits<ScalarT>::magnitudeType> dotprod(1);
 
-      ScalarT gMg = 0.0, gKg = 0.0, zMz = 0.0, zKz = 0.0;
+      ScalarT gMg = 0.0, gKg = 0.0, gEuclid2 = 0.0, zMz = 0.0, zKz = 0.0;
       const size_t nblocks = std::min(zfields.size(), gfields.size());
       for (size_t b = 0; b < nblocks; ++b) {
         auto zb = zfields[b]->getVector();
@@ -368,6 +371,9 @@ namespace ROL {
         gb->dot(*tmp, dotprod());
         for (size_t c = 0; c < dotprod.size(); ++c) gKg += dotprod[c];
 
+        gb->dot(*gb, dotprod());
+        for (size_t c = 0; c < dotprod.size(); ++c) gEuclid2 += dotprod[c];
+
         M->apply(*zb, *tmp);
         zb->dot(*tmp, dotprod());
         for (size_t c = 0; c < dotprod.size(); ++c) zMz += dotprod[c];
@@ -377,15 +383,46 @@ namespace ROL {
         for (size_t c = 0; c < dotprod.size(); ++c) zKz += dotprod[c];
       }
 
+      // Primal gradient g_p = H^{-1} g_d (or identity when Riesz is off).
+      // dual() returns a reference into a cached scratch buffer; consume inline.
+      const auto & gp_vec =
+          Teuchos::dyn_cast<const MrHyDE_OptVector>(lastDualGrad_->dual());
+      const auto & gpfields = gp_vec.getField();
+
+      ScalarT gpMgp = 0.0, gpKgp = 0.0, gpEuclid2 = 0.0;
+      const size_t npblocks = std::min(gpfields.size(), nblocks);
+      for (size_t b = 0; b < npblocks; ++b) {
+        auto gpb = gpfields[b]->getVector();
+        if (gpb.is_null()) continue;
+        if (gpb->getMap()->getGlobalNumElements() != M->getRowMap()->getGlobalNumElements()) continue;
+
+        auto tmp = Teuchos::rcp(new Multi(M->getRangeMap(), gpb->getNumVectors()));
+
+        M->apply(*gpb, *tmp);
+        gpb->dot(*tmp, dotprod());
+        for (size_t c = 0; c < dotprod.size(); ++c) gpMgp += dotprod[c];
+
+        K->apply(*gpb, *tmp);
+        gpb->dot(*tmp, dotprod());
+        for (size_t c = 0; c < dotprod.size(); ++c) gpKgp += dotprod[c];
+
+        gpb->dot(*gpb, dotprod());
+        for (size_t c = 0; c < dotprod.size(); ++c) gpEuclid2 += dotprod[c];
+      }
+
       if (isRootRank() && !rieszDiagOut_.is_null()) {
         const double ratio_g = (gMg > 0.0) ? static_cast<double>(gKg / gMg)
                                             : std::numeric_limits<double>::quiet_NaN();
         const double ratio_z = (zMz > 0.0) ? static_cast<double>(zKz / zMz)
                                             : std::numeric_limits<double>::quiet_NaN();
+        const double ratio_gp = (gpMgp > 0.0) ? static_cast<double>(gpKgp / gpMgp)
+                                              : std::numeric_limits<double>::quiet_NaN();
         (*rieszDiagOut_) << iter << ","
-                         << gMg << "," << gKg << ","
+                         << gMg << "," << gKg << "," << gEuclid2 << ","
                          << zMz << "," << zKz << ","
                          << ratio_g << "," << ratio_z << ","
+                         << gpMgp << "," << gpKgp << "," << gpEuclid2 << ","
+                         << ratio_gp << ","
                          << params->getHcurlAlpha1() << ","
                          << params->getHcurlAlpha2() << "\n";
         rieszDiagOut_->flush();
