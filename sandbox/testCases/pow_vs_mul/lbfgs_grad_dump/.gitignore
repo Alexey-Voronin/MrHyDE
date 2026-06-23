@@ -1,0 +1,14 @@
+gradients/
+fwd_dumps/
+logs/
+.cache/
+
+# Generated per-run decks from helper scripts.
+input_r*_np*_*.yaml
+input_r3hOnly_*.yaml
+input_r1tOnly_*.yaml
+input_r*_pow_fwddump.yaml
+rol_decks/rol_r*_np*_*.yaml
+rol_decks/rol_r3hOnly_*.yaml
+rol_decks/rol_r1tOnly_*.yaml
+rol_decks/rol_r*_pow_fwddump.yaml
