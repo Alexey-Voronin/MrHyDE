@@ -23,6 +23,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <cstdlib>
 #include <string>
 
 //#include <random> //for normal noise...not sure if this is necessary...
@@ -43,6 +44,8 @@ namespace ROL {
     Teuchos::RCP<Teuchos::Time> valuetimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::Objective::value()");
     Teuchos::RCP<Teuchos::Time> gradienttimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::Objective::gradient()");
     
+    mutable int grad_dump_count_ = 0;  // gradient() call counter for iter-0 dump
+
   public:
     
     /*!
@@ -94,6 +97,20 @@ namespace ROL {
       sens.zero();
       solver->adjointModel(sens);
       
+      // Iter-0 gradient dump: on first gradient() call, if
+      // MRHYDE_GRAD_DUMP_PREFIX is set, write files and exit.
+      if (grad_dump_count_ == 0) {
+        const char* prefix = std::getenv("MRHYDE_GRAD_DUMP_PREFIX");
+        if (prefix != nullptr) {
+          std::string filebase(prefix);
+          sens.print(filebase);
+          std::cout << "[MRHYDE_GRAD_DUMP] wrote " << filebase
+                    << ".field.*.mm, exiting after iter-0 gradient."
+                    << std::endl;
+          std::exit(0);
+        }
+      }
+      grad_dump_count_++;
     }
     
     bool checkNewParams(const Vector<Real> &Params) {

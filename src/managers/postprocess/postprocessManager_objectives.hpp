@@ -129,6 +129,12 @@ void PostprocessManager<Node>::computeObjective(vector<vector_RCP> &current_soln
   // Objective function values
   vector<ScalarT> totaldiff(objectives.size(), 0.0);
   
+  // Forward dump for step 0. If MRHYDE_FWD_DUMP_PREFIX is set, collect
+  // E[x], E[y], E[z] at quadrature points and write one file per component.
+  static size_t fwd_dump_step = 0;
+  const char* fwd_prefix = std::getenv("MRHYDE_FWD_DUMP_PREFIX");
+  std::vector<double> fwd_buf_x, fwd_buf_y, fwd_buf_z;
+
   for (size_t r = 0; r < objectives.size(); ++r)
   {
     if (objectives[r].type == "integrated control")
@@ -173,6 +179,23 @@ void PostprocessManager<Node>::computeObjective(vector<vector_RCP> &current_soln
         
         // Update the objective function value
         totaldiff[r] += objectives[r].weight * objsum_host(0);
+
+        // Append this group's E[x], E[y], E[z] quadrature values.
+        if (fwd_prefix != nullptr) {
+          const char* comps[3] = {"x", "y", "z"};
+          std::vector<double>* bufs[3] = {&fwd_buf_x, &fwd_buf_y, &fwd_buf_z};
+          for (int c = 0; c < 3; ++c) {
+            std::string ename = std::string("E[") + comps[c] + "]";
+            auto e_data = assembler->wkset[block]->getSolutionField(ename, false);
+            auto e_host = Kokkos::create_mirror_view(e_data);
+            Kokkos::deep_copy(e_host, e_data);
+            for (size_type elem = 0; elem < e_host.extent(0); ++elem) {
+              for (size_type pt = 0; pt < e_host.extent(1); ++pt) {
+                bufs[c]->push_back(static_cast<double>(e_host(elem, pt)));
+              }
+            }
+          }
+        }
       }
     }
     else if (objectives[r].type == "discrete control")
@@ -571,6 +594,26 @@ void PostprocessManager<Node>::computeObjective(vector<vector_RCP> &current_soln
     objectives[r].objective_times.push_back(current_time);
   }
   
+  // Write this step's forward dump files, then advance the step counter.
+  if (fwd_prefix != nullptr) {
+    std::string base(fwd_prefix);
+    const char* comps[3] = {"x", "y", "z"};
+    std::vector<double>* bufs[3] = {&fwd_buf_x, &fwd_buf_y, &fwd_buf_z};
+    for (int c = 0; c < 3; ++c) {
+      std::stringstream ss;
+      ss << base << ".t" << fwd_dump_step << "." << comps[c] << ".bin";
+      std::ofstream fout(ss.str(), std::ios::binary);
+      if (!fout.is_open()) {
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
+          "MRHYDE_FWD_DUMP: cannot open " + ss.str());
+      }
+      fout.write(reinterpret_cast<const char*>(bufs[c]->data()),
+                 bufs[c]->size() * sizeof(double));
+      fout.close();
+    }
+    fwd_dump_step++;
+  }
+
   debugger->print(1, "******** Finished PostprocessManager::computeObjective ...");
 }
 
