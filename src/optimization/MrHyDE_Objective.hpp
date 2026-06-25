@@ -14,6 +14,7 @@
 #include "ROL_Objective.hpp"
 #include "ROL_BoundConstraint.hpp"
 #include "Teuchos_ParameterList.hpp"
+#include "Teuchos_DefaultComm.hpp"
 
 #include "solverManager.hpp"
 #include "postprocessManager.hpp"
@@ -104,9 +105,13 @@ namespace ROL {
         if (prefix != nullptr) {
           std::string filebase(prefix);
           sens.print(filebase);
+          auto comm = Teuchos::DefaultComm<int>::getComm();
+          comm->barrier();
           std::cout << "[MRHYDE_GRAD_DUMP] wrote " << filebase
                     << ".field.*.mm, exiting after iter-0 gradient."
                     << std::endl;
+          std::cout.flush();
+          comm->barrier();
           std::exit(0);
         }
       }
