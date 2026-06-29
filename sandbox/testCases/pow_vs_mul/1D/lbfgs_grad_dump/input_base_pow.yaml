@@ -83,7 +83,7 @@ ANONYMOUS:
       EM Energy:
         type: integrated control
         function: '0.5*permittivity*((E[x])^2+(E[y])^2+(E[z])^2) + 0.5/permeability*((B[x])^2+(B[y])^2+(B[z])^2)'
-        weight:1.0e35 
+        weight: 1.0e35 
         blocks: 'eblock-0_0_0 eblock-0_0_1 eblock-0_0_2 eblock-0_0_6 eblock-0_0_7 eblock-0_0_8'
       RegObj:
         type: integrated control
