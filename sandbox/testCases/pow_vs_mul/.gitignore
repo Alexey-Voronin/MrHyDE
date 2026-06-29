@@ -1,3 +1,7 @@
 gradients/
 fwd_dumps/
 .cache/
+.mplconfig/
+anim
+*md
+*job
