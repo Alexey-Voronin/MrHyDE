@@ -1,0 +1,23 @@
+%YAML 1.1
+---
+ANONYMOUS:
+  Mesh:
+    dimension: 3
+    shape: hex
+    xmin: -36.0e-6
+    xmax:  36.0e-6
+    ymin: -36.0e-6
+    ymax:  36.0e-6
+    zmin: -36.0e-6
+    zmax:  36.0e-6
+    NX: 90
+    NY: 90
+    NZ: 90
+    Xprocs: 6
+    Yprocs: 6
+    Zprocs: 6
+    Xblocks: 3
+    Yblocks: 3
+    Zblocks: 3
+    blocknames: eblock-0_0_0 eblock-0_0_1 eblock-0_0_2 eblock-0_1_0 eblock-0_1_1 eblock-0_1_2 eblock-0_2_0 eblock-0_2_1 eblock-0_2_2 eblock-1_0_0 eblock-1_0_1 eblock-1_0_2 eblock-1_1_0 eblock-1_1_1 eblock-1_1_2 eblock-1_2_0 eblock-1_2_1 eblock-1_2_2 eblock-2_0_0 eblock-2_0_1 eblock-2_0_2 eblock-2_1_0 eblock-2_1_1 eblock-2_1_2 eblock-2_2_0 eblock-2_2_1 eblock-2_2_2
+...
