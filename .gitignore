@@ -7,6 +7,7 @@
 *.bak
 *.xml
 *._*
+*.*
 *~
 *-Host.memspace_usage
 *.mem_events
