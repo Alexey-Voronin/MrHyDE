@@ -412,10 +412,13 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
 
   // set Riesz-map weights.
   // Default: auto-balanced (alpha1 = auto_ratio, alpha2 = 1).
+  // Optional "hcurl auto amplify" (default 1.0) further multiplies
+  // alpha1, i.e., pushes H toward mass-dominated.
   // Override: set explicit "hcurl alpha1" / "hcurl alpha2" in rol2 the Analysis section.
   ScalarT alpha1 = static_cast<ScalarT>(auto_ratio);
   ScalarT alpha2 = static_cast<ScalarT>(1);
   bool user_override = false;
+  ScalarT auto_amplify = static_cast<ScalarT>(1);
 
   if (settings->isSublist("Analysis")) {
     auto& analysis_list = settings->sublist("Analysis");
@@ -423,13 +426,19 @@ void ParameterManager<Node>::buildHcurlOperators(matrix_RCP paramMass, matrix_RC
       alpha1 = analysis_list.get<ScalarT>("hcurl alpha1", static_cast<ScalarT>(1));
       alpha2 = analysis_list.get<ScalarT>("hcurl alpha2", static_cast<ScalarT>(1));
       user_override = true;
+    } else if (analysis_list.isParameter("hcurl auto amplify")) {
+      auto_amplify = analysis_list.get<ScalarT>("hcurl auto amplify", static_cast<ScalarT>(1));
+      alpha1 *= auto_amplify;
     }
   }
 
   if (Comm->getRank() == 0) {
     std::cout << "[RieszMap] alpha1=" << alpha1 << "  alpha2=" << alpha2
-              << "  mode=" << (user_override ? "user_override" : "auto_balanced")
-              << std::endl;
+              << "  mode=" << (user_override ? "user_override" : "auto_balanced");
+    if (!user_override && auto_amplify != static_cast<ScalarT>(1)) {
+      std::cout << "  auto_amplify=" << auto_amplify;
+    }
+    std::cout << std::endl;
   }
 
   if (Comm->getRank() == 0 && verbosity >= 5) {
