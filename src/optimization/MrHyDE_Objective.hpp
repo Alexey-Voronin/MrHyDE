@@ -38,12 +38,16 @@ namespace ROL {
     
   private:
     enum class PrecondMode { Dual, Identity };
-    
+    // FD  : euclideanNorm-based finite-difference-of-gradients hessVec (mass_matrix_scaling)
+    // Exact: tangent + 2nd-order adjoint hessVec, gated on src_gate (fd_check)
+    enum class HessVecMode { FD, Exact };
+
     Real noise_;                                            //standard deviation of normal additive noise to add to data (0 for now)
     Teuchos::RCP<SolverManager<SolverNode> > solver;                                     // Solver object for MILO (solves FWD, ADJ, computes gradient, etc.)
     Teuchos::RCP<PostprocessManager<SolverNode> > postproc;                              // Postprocessing object for MILO (write solution, computes response, etc.)
     Teuchos::RCP<ParameterManager<SolverNode> > params;
     PrecondMode precondMode_ = PrecondMode::Dual;
+    HessVecMode hessVecMode_ = HessVecMode::Exact;
     bool didVectorContractCheck_ = false;
 
     // Riesz energy diagnostics state.
@@ -55,6 +59,7 @@ namespace ROL {
 
     Teuchos::RCP<Teuchos::Time> valuetimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::Objective::value()");
     Teuchos::RCP<Teuchos::Time> gradienttimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::Objective::gradient()");
+    Teuchos::RCP<Teuchos::Time> hessvectimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::Objective::hessVec()");
 
     std::string toLower(std::string val) const {
       std::transform(val.begin(), val.end(), val.begin(),
@@ -135,8 +140,14 @@ namespace ROL {
     Objective_MILO(Teuchos::RCP<SolverManager<SolverNode> > solver_,
                    Teuchos::RCP<PostprocessManager<SolverNode> > postproc_,
                    Teuchos::RCP<ParameterManager<SolverNode> > & params_,
-                   const std::string & hessVecPrecondMode = "dual") :
+                   const std::string & hessVecPrecondMode = "dual",
+                   const std::string & hessVecMode = "exact",
+                   bool enableVectorContractCheck = false) :
     solver(solver_), postproc(postproc_), params(params_) {
+      // Suppress runVectorContractCheckOnce output unless explicitly opted in via
+      // ROL/General/'vector contract check'.
+      didVectorContractCheck_ = !enableVectorContractCheck;
+
       const std::string precondMode = toLower(hessVecPrecondMode);
 
       if (precondMode == "identity") {
@@ -148,6 +159,20 @@ namespace ROL {
       else if (isRootRank()) {
         std::cout << "MrHyDE warning: unrecognized HessVec Precond Mode '" << hessVecPrecondMode
                   << "'. Falling back to 'dual'." << std::endl;
+      }
+
+      // Select hessVec implementation. "fd" -> mass_matrix_scaling FD-of-gradients,
+      // "exact" -> fd_check tangent + 2nd-order adjoint (default).
+      const std::string hvMode = toLower(hessVecMode);
+      if (hvMode == "fd") {
+        hessVecMode_ = HessVecMode::FD;
+      }
+      else if (hvMode == "exact") {
+        hessVecMode_ = HessVecMode::Exact;
+      }
+      else if (isRootRank()) {
+        std::cout << "MrHyDE warning: unrecognized HessVec Mode '" << hessVecMode
+                  << "'. Falling back to 'exact'." << std::endl;
       }
     } //end constructor
     
@@ -204,24 +229,33 @@ namespace ROL {
       }
     }
     
+    // Any nonzero param change triggers a re-solve. This is a caching shortcut
+    // for back-to-back calls with identical Params (e.g. ROL calling value()
+    // then gradient() with the same x); it must not swallow tiny perturbations
+    // like base-ROL hessVec's tol-sized FD step, since stale gradients silently
+    // break Hessian consistency downstream.
     bool checkNewParams(const Vector<Real> &Params) {
       MrHyDE_OptVector curr_params = params->getCurrentVector();
       auto diff = curr_params.clone();
-      diff->zero();
       diff->set(curr_params);
-      diff->axpy(-1.0,Params);
-      ScalarT dnorm = diff->norm();
-      ScalarT refnorm = curr_params.norm();
-      dnorm = (refnorm > 0.0) ? dnorm/refnorm : dnorm; // dnorm/ROL_EPSILON<Real>();
-      ScalarT reltol = 1.0e-12;
-      bool newparams = false;
-      if (dnorm > reltol) {
-        newparams = true;
-      }
-      return newparams;
+      diff->axpy(-1.0, Params);
+      return diff->norm() > static_cast<ScalarT>(0);
     }
 
+    // Dispatch to either FD-of-gradients (HessVec Mode = "fd") or exact
+    // tangent + 2nd-order adjoint (HessVec Mode = "exact"). Exact falls back to
+    // ROL's built-in FD when src_gate is not defined.
     void hessVec(Vector<Real> &hv, const Vector<Real> &v, const Vector<Real> &Params, Real &tol) override {
+      if (hessVecMode_ == HessVecMode::FD) {
+        hessVecFD(hv, v, Params, tol);
+      }
+      else {
+        hessVecExact(hv, v, Params, tol);
+      }
+    }
+
+    // FD-of-gradients hessVec (mass_matrix_scaling).
+    void hessVecFD(Vector<Real> &hv, const Vector<Real> &v, const Vector<Real> &Params, Real &tol) {
       const MrHyDE_OptVector &v_opt =
           Teuchos::dyn_cast<const MrHyDE_OptVector>(v);
       const MrHyDE_OptVector &x_opt =
@@ -229,7 +263,7 @@ namespace ROL {
 
       const Real zero(0), one(1);
       // euclidian is cheaper than metric-aware norm() and converges the same way.
-      const Real vnorm = v_opt.euclideanNorm(); // .norm(); 
+      const Real vnorm = v_opt.euclideanNorm(); // .norm();
       if (vnorm == zero) { hv.zero(); return; }
 
       const Real xnorm = x_opt.euclideanNorm(); // .norm();
@@ -252,6 +286,39 @@ namespace ROL {
       hv.axpy(-one, *gbase);
       hv.scale(vnorm / delta);
       this->update(Params, ROL::UpdateType::Revert);
+    }
+
+    // Exact hessVec when src_gate is present; else ROL FD-of-gradients (fd_check).
+    void hessVecExact(Vector<Real> &hv, const Vector<Real> &v, const Vector<Real> &Params, Real &tol) {
+
+      if (!params->isParameter("src_gate")) {
+        this->ROL::Objective<Real>::hessVec(hv, v, Params, tol);
+        return;
+      }
+
+      Teuchos::TimeMonitor localtimer(*hessvectimer);
+
+      if (this->checkNewParams(Params)) {
+        MrHyDE_OptVector u =
+          Teuchos::dyn_cast<MrHyDE_OptVector>(const_cast<Vector<Real>&>(Params));
+        params->updateParams(u);
+        ScalarT val = 0.0;
+        solver->forwardModel(val);
+      }
+
+      MrHyDE_OptVector & v_dir =
+        Teuchos::dyn_cast<MrHyDE_OptVector>(const_cast<Vector<Real>&>(v));
+      MrHyDE_OptVector & Hv = Teuchos::dyn_cast<MrHyDE_OptVector>(hv);
+      Hv.zero();
+
+      solver->incrementalForwardModel(v_dir);
+      solver->incrementalAdjointModel(Hv);
+
+      // Tangent borrowed params for v; restore u so the next value()/gradient()
+      // does not think the control changed.
+      MrHyDE_OptVector u =
+        Teuchos::dyn_cast<MrHyDE_OptVector>(const_cast<Vector<Real>&>(Params));
+      params->updateParams(u);
     }
 
 

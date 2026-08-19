@@ -969,20 +969,20 @@ void PostprocessManager<Node>::computeObjectiveGradState(const size_t &set,
   if (write_this_step)
   {
 
+#if defined(MrHyDE_ENABLE_HDSA)
+    if (hdsa_solop)
+    {
+      vector_RCP D_soln;
+      hdsa_solop_data[set]->extract(D_soln, 0, current_time);
+      grad->update(1.0, *D_soln, 1.0);
+    }
+    else
+    {
+#endif
+
     for (size_t r = 0; r < objectives.size(); ++r)
     {
       size_t block = objectives[r].block;
-
-#if defined(MrHyDE_ENABLE_HDSA)
-      if (hdsa_solop)
-      {
-        vector_RCP D_soln;
-        hdsa_solop_data[set]->extract(D_soln, 0, current_time);
-        grad->update(1.0, *D_soln, 1.0);
-      }
-      else
-      {
-#endif
 
         if (assembler->type_AD == -1)
         {
@@ -1032,10 +1032,10 @@ void PostprocessManager<Node>::computeObjectiveGradState(const size_t &set,
                                           assembler->wkset_AD32[block],
                                           assembler->function_managers_AD32[block]);
         }
-#if defined(MrHyDE_ENABLE_HDSA)
       }
-#endif
+#if defined(MrHyDE_ENABLE_HDSA)
     }
+#endif
   }
 #endif
 
@@ -1111,10 +1111,11 @@ void PostprocessManager<Node>::computeObjectiveGradState(const size_t &set,
     sol_kv.push_back(vec_dev);
   }
 
-  // Grab slices of Kokkos Views and push to AssembleDevice one time (each)
+  // paramLIDs (see assemblyManager_gather.hpp case 4) are indexed against the
+  // overlapped parameter map; use the overlapped vector, not the owned one.
   vector<Kokkos::View<ScalarT *, AssemblyDevice>> params_kv;
 
-  auto Psol = params->getDiscretizedParams();
+  auto Psol = params->getDiscretizedParamsOver();
   auto p_kv = Psol->template getLocalView<LA_device>(Tpetra::Access::ReadWrite);
   auto pslice = Kokkos::subview(p_kv, Kokkos::ALL(), 0);
 
@@ -1185,7 +1186,8 @@ void PostprocessManager<Node>::computeObjectiveGradState(const size_t &set,
 
       if (data_avail)
       {
-        assembler->scatterRes(grad_view, local_grad, assembler->groups[block][grp]->LIDs[set]);
+        assembler->scatterRes(grad_view, local_grad, assembler->groups[block][grp]->LIDs[set],
+                              assembler->groups[block][grp]->phase_LIDs[set]);
       }
       else
       {
@@ -1193,14 +1195,17 @@ void PostprocessManager<Node>::computeObjectiveGradState(const size_t &set,
 
         if (use_host_LIDs)
         { // LA_device = Host, AssemblyDevice = CUDA (no UVM)
-          assembler->scatterRes(grad_view, local_grad_ladev, assembler->groups[block][grp]->LIDs_host[set]);
+          assembler->scatterRes(grad_view, local_grad_ladev, assembler->groups[block][grp]->LIDs_host[set],
+                                assembler->groups[block][grp]->phase_LIDs_host[set]);
         }
         else
         { // LA_device = CUDA, AssemblyDevice = Host
           // TMW: this should be a very rare instance, so we are just being lazy and copying the data here
           auto LIDs_dev = Kokkos::create_mirror(LA_exec(), assembler->groups[block][grp]->LIDs[set]);
+          auto phase_LIDs_dev = Kokkos::create_mirror(LA_exec(), assembler->groups[block][grp]->phase_LIDs[set]);
           Kokkos::deep_copy(LIDs_dev, assembler->groups[block][grp]->LIDs[set]);
-          assembler->scatterRes(grad_view, local_grad_ladev, LIDs_dev);
+          Kokkos::deep_copy(phase_LIDs_dev, assembler->groups[block][grp]->phase_LIDs[set]);
+          assembler->scatterRes(grad_view, local_grad_ladev, LIDs_dev, phase_LIDs_dev);
         }
       }
     }
@@ -1293,7 +1298,8 @@ void PostprocessManager<Node>::computeObjectiveGradState(const size_t &set,
 
       if (data_avail)
       {
-        assembler->scatterRes(grad_view, local_grad, assembler->groups[block][grp]->LIDs[set]);
+        assembler->scatterRes(grad_view, local_grad, assembler->groups[block][grp]->LIDs[set],
+                              assembler->groups[block][grp]->phase_LIDs[set]);
       }
       else
       {
@@ -1301,14 +1307,17 @@ void PostprocessManager<Node>::computeObjectiveGradState(const size_t &set,
 
         if (use_host_LIDs)
         { // LA_device = Host, AssemblyDevice = CUDA (no UVM)
-          assembler->scatterRes(grad_view, local_grad_ladev, assembler->groups[block][grp]->LIDs_host[set]);
+          assembler->scatterRes(grad_view, local_grad_ladev, assembler->groups[block][grp]->LIDs_host[set],
+                                assembler->groups[block][grp]->phase_LIDs_host[set]);
         }
         else
         { // LA_device = CUDA, AssemblyDevice = Host
           // TMW: this should be a very rare instance, so we are just being lazy and copying the data here
           auto LIDs_dev = Kokkos::create_mirror(LA_exec(), assembler->groups[block][grp]->LIDs[set]);
+          auto phase_LIDs_dev = Kokkos::create_mirror(LA_exec(), assembler->groups[block][grp]->phase_LIDs[set]);
           Kokkos::deep_copy(LIDs_dev, assembler->groups[block][grp]->LIDs[set]);
-          assembler->scatterRes(grad_view, local_grad_ladev, LIDs_dev);
+          Kokkos::deep_copy(phase_LIDs_dev, assembler->groups[block][grp]->phase_LIDs[set]);
+          assembler->scatterRes(grad_view, local_grad_ladev, LIDs_dev, phase_LIDs_dev);
         }
       }
     }
@@ -1318,6 +1327,10 @@ void PostprocessManager<Node>::computeObjectiveGradState(const size_t &set,
 
     // Right now grad_over = dresponse/du
     // We want   grad_over = 2.0*wt*(response - target)*dresponse/du
+    TEUCHOS_TEST_FOR_EXCEPTION(this->is_incremental_adjoint, std::runtime_error,
+      "Exact hessVec does not support 'integrated response' in incremental-adjoint mode: "
+      "(response-target)^2 is quartic in state for quadratic response, so not LQ. "
+      "Use 'integrated control' with 0.5*(T-trk_gate*Td)^2 or use FD-of-gradients.");
     grad_over->scale(2.0 * objectives[obj].weight * (value - objectives[obj].target));
 
     linalg->exportVectorFromOverlapped(set, grad_tmp, grad_over);
@@ -1337,7 +1350,10 @@ void PostprocessManager<Node>::computeObjectiveGradState(const size_t &set,
       u_no->doExport(*(current_soln), *(linalg->exporter[set]), Tpetra::REPLACE);
       D_no->doExport(*D_soln, *(linalg->exporter[set]), Tpetra::REPLACE);
       diff->update(1.0, *u_no, 0.0);
-      diff->update(-1.0, *D_no, 1.0);
+      // Incremental-adjoint uses current_soln = w; drop target term so grad is f_yy w.
+      if (!this->is_incremental_adjoint) {
+        diff->update(-1.0, *D_no, 1.0);
+      }
       grad->update(-2.0 * dt * objectives[obj].weight, *diff, 1.0);
     }
     else
@@ -1347,6 +1363,10 @@ void PostprocessManager<Node>::computeObjectiveGradState(const size_t &set,
   }
   else if (objectives[obj].type == "sensors")
   {
+    TEUCHOS_TEST_FOR_EXCEPTION(this->is_incremental_adjoint, std::runtime_error,
+      "Exact hessVec does not support 'sensors' in incremental-adjoint mode: "
+      "(response-sensor_data)^2 is quartic in state for quadratic response, so not LQ. "
+      "Use 'integrated control' with 0.5*(T-trk_gate*Td)^2 or use FD-of-gradients.");
 
     auto grad_over = linalg->getNewOverlappedVector(set);
     auto grad_tmp = linalg->getNewVector(set);
@@ -1490,7 +1510,8 @@ void PostprocessManager<Node>::computeObjectiveGradState(const size_t &set,
           }
         }
 
-        assembler->scatterRes(grad_view, local_grad, assembler->groups[block][grp]->LIDs[set]);
+        assembler->scatterRes(grad_view, local_grad, assembler->groups[block][grp]->LIDs[set],
+                              assembler->groups[block][grp]->phase_LIDs[set]);
 
         wset->isOnSide = false;
       }
@@ -1631,13 +1652,15 @@ void PostprocessManager<Node>::computeSensitivities(vector<vector_RCP> &u,
       curr_grad = disc_grad[0]->getVector();
     }
 
-    // Compute complete gradient before preconditioning.
-    // Step 1: Get raw adjoint-based gradient only.
+    // Adjoint-based sens is owned; add directly to owned curr_grad.
+    // Regularization contributions live on the overlapped map; export with ADD
+    // to sum shared-DOF entries once into owned before adding to curr_grad.
+    // Combining the two through import(sens)+reg then export(ADD) double-counts
+    // sens on shared DOFs (multiplicity of the overlap).
     auto sens = this->computeDiscreteSensitivities(u, adjoint, current_time, tindex, deltat);
+    curr_grad->update(1.0, *sens, 1.0);
 
-    // Step 2: Add regularization terms to form complete dual-space gradient
     vector_RCP sens_over = linalg->getNewOverlappedParamVector();
-    sens_over->doImport(*sens, *(linalg->param_importer), Tpetra::INSERT);
     auto sens_kv = sens_over->template getLocalView<LA_device>(Tpetra::Access::ReadWrite);
 
     for (size_t i = 0; i < params->paramOwnedAndShared.size(); i++) {
@@ -1648,12 +1671,9 @@ void PostprocessManager<Node>::computeSensitivities(vector<vector_RCP> &u,
       sens_kv(i, 0) += cobj;
     }
 
-    vector_RCP complete_grad = linalg->getNewParamVector();
-    linalg->exportParamVectorFromOverlapped(complete_grad, sens_over);
-
-    // Return the complete dual-space gradient without preconditioning.
-    // Metric handling (Riesz map) is done by MrHyDE_OptVector::dual()/apply().
-    curr_grad->update(1.0, *complete_grad, 1.0);
+    vector_RCP sensr = linalg->getNewParamVector();
+    linalg->exportParamVectorFromOverlapped(sensr, sens_over);
+    curr_grad->update(1.0, *sensr, 1.0);
 
   }
   //this->saveObjectiveGradientData(gradient);
