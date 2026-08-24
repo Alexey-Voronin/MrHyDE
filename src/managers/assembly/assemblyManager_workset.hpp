@@ -29,7 +29,7 @@ void AssemblyManager<Node>::createWorkset() {
       info.push_back(params->num_active_params);
       info.push_back(mesh->getPhaseDimension());
       info.push_back(mesh->getNumPhaseElements());
-      info.push_back(disc->phase_numip[block]);
+      info.push_back(disc->phase_numip[0]); // one entry shared across all spatial blocks 
       vector<size_t> numVars;
       for (size_t set=0; set<groupData[block]->set_num_dof.size(); ++set) {
         numVars.push_back(groupData[block]->set_num_dof[set].extent(0));
