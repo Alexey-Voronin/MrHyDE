@@ -88,17 +88,31 @@ Teuchos::RCP<Teuchos::ParameterList> LinearAlgebraInterface<Node>::getBelosParam
   if (cntxt->belos_type != "MINRES") {
     belosList->set("Estimate Condition Number", doCondEst); // Only implemented in Belos for Pseudo Block CG, based on AztecOO
   }
-  if (verbosity >= 9) {
-    belosList->set("Verbosity", Belos::Errors + Belos::Warnings + Belos::StatusTestDetails);
+  const std::string belos_output_file =
+    settings->sublist("Solver").template get<std::string>("belos output file", "");
+
+  if (!belos_output_file.empty()) {
+    if (belos_output_stream.is_null()) {
+      if (comm->getRank() == 0) {
+        auto output = Teuchos::rcp(new std::ofstream(belos_output_file.c_str()));
+        TEUCHOS_TEST_FOR_EXCEPTION(!output->is_open(), std::runtime_error,
+          "Could not open Belos output file: " + belos_output_file);
+        belos_output_stream = output;
+      }
+      else {
+        belos_output_stream = Teuchos::rcp(new Teuchos::oblackholestream());
+      }
+    }
+    belosList->set<Teuchos::RCP<std::ostream> >("Output Stream", belos_output_stream);
+    belosList->set("Verbosity", Belos::Errors + Belos::Warnings + Belos::FinalSummary);
+    belosList->set("Output Frequency", 0);
   }
   else {
-    belosList->set("Verbosity", Belos::Errors);
-  }
-  if (verbosity > 8) {
-    belosList->set("Output Frequency",10);
-  }
-  else {
-    belosList->set("Output Frequency",0);
+    const bool verbose = verbosity >= 9;
+    belosList->set("Verbosity", verbose
+      ? Belos::Errors + Belos::Warnings + Belos::StatusTestDetails
+      : Belos::Errors);
+    belosList->set("Output Frequency", verbose ? 10 : 0);
   }
   int numEqns = 1;
   if (disc->block_names.size() == 1) {

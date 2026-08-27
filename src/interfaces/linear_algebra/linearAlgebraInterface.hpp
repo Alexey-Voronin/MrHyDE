@@ -20,10 +20,13 @@
 #include "parameterManager.hpp"
 #include "MrHyDE_Debugger.hpp"
 
+#include <fstream>
+
 // Belos
 #include <BelosConfigDefs.hpp>
 #include <BelosLinearProblem.hpp>
 #include <BelosTpetraAdapter.hpp>
+#include <Teuchos_oblackholestream.hpp>
 
 // MueLu
 #include <MueLu.hpp>
@@ -741,6 +744,7 @@ public:
   Teuchos::RCP<Teuchos::Time> exporttimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::LinearAlgebraInterface::export*()");
   Teuchos::RCP<Teuchos::Time> importtimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::LinearAlgebraInterface::import*()");
   Teuchos::RCP<Teuchos::Time> prectimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::LinearAlgebraInterface::buildPreconditioner()");
+  Teuchos::RCP<std::ostream> belos_output_stream;
 };
 
 }
