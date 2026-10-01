@@ -22,7 +22,7 @@
 
 namespace MrHyDE {
 
-// Block preconditioners for 2x2 mixed systems:
+// Block preconditioners for mixed systems, shown here for two splits:
 //
 //   [ J00  J01 ] [ x0 ] = [ b0 ]
 //   [ J10  J11 ] [ x1 ]   [ b1 ]

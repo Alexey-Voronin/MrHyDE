@@ -36,7 +36,7 @@
 namespace MrHyDE {
 
 // Schur and block-triangular options.
-// Ooverview at the top of linearAlgebraInterface_blockprec.hpp.
+// Overview at the top of linearAlgebraInterface_blockprec.hpp.
 struct SchurConfig {
   std::string approximation_type;   // base, diag or mass
   ScalarT damping;                  // gamma in the diag Schur correction
@@ -49,7 +49,7 @@ struct SchurConfig {
 // Auxiliary operators for the H(curl) preconditioners, built once per set by
 // SolverManager::setupBlockTriangularAuxiliary and shared by RefMaxwell, Maxwell1 and
 // the Hiptmair smoother. D0/M1/Kn are defined above the
-// buildRefMaxwellPreconditioner (linearAlgebraInterface_solvers.hpp).
+// buildRefMaxwellPreconditioner (block_prec/MaxwellInverse.hpp).
 template<class Node>
 struct RefMaxwellData {
   typedef Tpetra::CrsMatrix<ScalarT,LO,GO,Node>   LA_CrsMatrix;

@@ -501,11 +501,6 @@ public:
   /** @brief Build or refresh selected preconditioner and return as LA_Operator. */
   Teuchos::RCP<LA_Operator> buildOrUpdatePreconditioner(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
                                                         const matrix_RCP & J);
-  /** Teko inverse library for this context. */
-  block_prec::InverseLibraryCache<Node> &
-  inverseLibrary(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt) const {
-    return cntxt->inverseLibrary(verbosity, comm->getRank());
-  }
   bool preconditionerNeedsRebuild(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
                                   const bool havePreconditioner) const {
     return !havePreconditioner ||
