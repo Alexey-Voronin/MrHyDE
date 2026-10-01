@@ -517,12 +517,9 @@ Teuchos::ParameterList splitMueLuParams(const Teuchos::RCP<LinearSolverContext<N
     const bool useMonolithic = !hasAmgSublist && isTarget &&
                                cntxt->prec_sublist.name() != "empty";
     if (hasAmgSublist || useMonolithic) {
-      Teuchos::ParameterList filteredParams(hasAmgSublist
-        ? Teuchos::ParameterList(splitList.sublist("AMG Settings"))
-        : Teuchos::ParameterList(cntxt->prec_sublist));
-      removeMrHyDEOwnedKeys(filteredParams);
-      removeIfpack2OnlyKeys(filteredParams);
-      mueluParams.setParameters(filteredParams);
+      const Teuchos::ParameterList & deckList = hasAmgSublist
+        ? splitList.sublist("AMG Settings") : cntxt->prec_sublist;
+      applyDeckMueLuOverrides(mueluParams, deckList);
     }
     else if (isTarget) {
       // Tuned for the Schur complement, so they stay off the weight splits.

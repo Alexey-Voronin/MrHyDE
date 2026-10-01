@@ -234,11 +234,7 @@ buildAmgBlockOperator(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
 
   if (!loadMueLuXmlIfPresent(blockList, mueluList, "block-diag AMG", blockMat->getComm())) {
     mueluList = defaultMueLuParams();
-    Teuchos::ParameterList filteredBlockList(blockList);
-    removeMrHyDEOwnedKeys(filteredBlockList);
-    // MueLu rejects the top-level relaxation parameters added by mergeBlockSettings.
-    removeIfpack2OnlyKeys(filteredBlockList);
-    mueluList.setParameters(filteredBlockList);
+    applyDeckMueLuOverrides(mueluList, blockList);
   }
 
   if (mueluParamsWantCoordinates(mueluList)) {

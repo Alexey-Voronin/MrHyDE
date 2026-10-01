@@ -26,7 +26,7 @@ handed to MueLu or Ifpack2. No matrices are modified here.
 namespace MrHyDE {
 namespace block_prec {
 
-// not using Teuchos::updateParametersFromXmlFileAndBroadcast here, aas it
+// not using Teuchos::updateParametersFromXmlFileAndBroadcast here, as it
 // opens the file on rank 0 before its first broadcast, so a bad path hangs the other ranks.
 inline void loadXmlBroadcast(const std::string & file,
                              Teuchos::ParameterList & out,
@@ -62,15 +62,6 @@ inline std::string canonicalPreconditionerType(const std::string & raw) {
     "Unsupported preconditioner type '" << raw
     << "'. Supported values: AMG, Ifpack2, domain decomposition, block diagonal, block triangular.");
   return "AMG";
-}
-
-inline std::string canonicalBlockPrecType(const std::string & raw) {
-  const BlockPrecType t = parseBlockPrecType(raw);
-  if (t == BlockPrecType::AMG) return "AMG";
-  if (t == BlockPrecType::RefMaxwell) return "RefMaxwell";
-  if (t == BlockPrecType::Maxwell1) return "Maxwell1";
-  if (t == BlockPrecType::Direct) return "Direct";
-  return "Diagonal";
 }
 
 inline std::string canonicalSchurApproximationType(const std::string & raw) {
@@ -243,6 +234,16 @@ inline void removeIfpack2OnlyKeys(Teuchos::ParameterList & list) {
   for (size_t i = 0; i < removeKeys.size(); ++i) {
     list.remove(removeKeys[i], false);
   }
+}
+
+// Deck keys on top of the MueLu defaults. MrHyDE's own keys and the Ifpack2-only
+// smoother keys go first, since MueLu rejects an unrecognized top-level key.
+inline void applyDeckMueLuOverrides(Teuchos::ParameterList & mueluParams,
+                                    const Teuchos::ParameterList & deckList) {
+  Teuchos::ParameterList filtered(deckList);
+  removeMrHyDEOwnedKeys(filtered);
+  removeIfpack2OnlyKeys(filtered);
+  mueluParams.setParameters(filtered);
 }
 
 inline bool isHiptmairSmoother(const std::string & type) {
