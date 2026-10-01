@@ -31,6 +31,12 @@
 
 namespace MrHyDE {
 
+// H(grad)/H(curl) bases a split named for the RefMaxwell/Maxwell1 auxiliary spaces.
+struct AuxiliaryBasisSpec {
+  std::string hgrad_name, hcurl_name;
+  int hgrad_order = 1, hcurl_order = 1;
+};
+
 /**
  * @class SolverManager
  * @brief Manages the setup, execution, and solution of steady and transient PDE systems.
@@ -104,6 +110,28 @@ public:
   /** @brief Build A-block auxiliary-space data (D0, M1, coords) for block-triangular RefMaxwell. */
   void setupBlockTriangularAuxiliary(const size_t & set,
                                      const Teuchos::RCP<LinearSolverContext<Node> > & cntxt);
+  // Assemble the set mass and cache one block of it per variable.
+  void assembleAuxiliaryMass(const size_t & set,
+                             const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
+                             matrix_RCP & assembled_mass_matrix,
+                             std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > & blockMaps);
+  // Resolve the auxiliary bases; false when only the block mass matrices are needed.
+  bool resolveAuxiliaryBases(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
+                             AuxiliaryBasisSpec & bases);
+  // Build D0 on the primary edge numbering and M1 on the edge block.
+  void buildAuxiliaryGradient(const size_t & set,
+                              const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
+                              const AuxiliaryBasisSpec & bases,
+                              const matrix_RCP & assembled_mass_matrix,
+                              const std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > & blockMaps,
+                              size_t & edgeBlock,
+                              Teuchos::RCP<panzer::DOFManager> & hgrad_dof);
+  // Build nodal coordinates, lumped nodal mass, and the edge coordinates.
+  void buildAuxiliaryNodalData(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
+                               const AuxiliaryBasisSpec & bases,
+                               const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
+                               const std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > & blockMaps,
+                               const size_t edgeBlock);
   
   /** @brief Finalize workset allocation for assembly */
   void finalizeWorkset();

@@ -189,11 +189,34 @@ void SolverManager<Node>::setupBlockTriangularAuxiliary(const size_t & set,
     "Missing linear solver context for set " + std::to_string(set));
   debugger->print("**** setupBlockTriangularAuxiliary: begin set " + std::to_string(set));
 
-  bool blockSublistWantsD0 = false;
-  for (size_t r = 0; r < cntxt->numSplits(); ++r) {
-    blockSublistWantsD0 = blockSublistWantsD0 || declaresAuxiliaryBases(cntxt->splitSettings(r));
+  matrix_RCP assembled_mass_matrix;
+  std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > blockMaps;
+  this->assembleAuxiliaryMass(set, cntxt, assembled_mass_matrix, blockMaps);
+
+  AuxiliaryBasisSpec bases;
+  if (!this->resolveAuxiliaryBases(cntxt, bases)) {
+    debugger->print("**** setupBlockTriangularAuxiliary: done (mass-only, set " + std::to_string(set) + ")");
+    return;
   }
 
+  size_t edgeBlock = 0;
+  Teuchos::RCP<panzer::DOFManager> hgrad_dof;
+  this->buildAuxiliaryGradient(set, cntxt, bases, assembled_mass_matrix, blockMaps,
+                               edgeBlock, hgrad_dof);
+  this->buildAuxiliaryNodalData(cntxt, bases, hgrad_dof, blockMaps, edgeBlock);
+
+  debugger->print("**** setupBlockTriangularAuxiliary: end set " + std::to_string(set));
+}
+
+// ========================================================================================
+// ========================================================================================
+
+// Mass over the whole set, exported and cached one matrix per variable block.
+template<class Node>
+void SolverManager<Node>::assembleAuxiliaryMass(const size_t & set,
+                                               const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
+                                               matrix_RCP & assembled_mass_matrix,
+                                               std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > & blockMaps) {
   // No per-variable assembly, so build the mass over the whole set and extract the
   // edge block below.
   matrix_RCP M1_over = linalg->getNewOverlappedMatrix(set);
@@ -208,12 +231,12 @@ void SolverManager<Node>::setupBlockTriangularAuxiliary(const size_t & set,
   }
   assembler->getWeightedMass(set, M1_over, diagM1_over);
 
-  matrix_RCP assembled_mass_matrix = linalg->getNewMatrix(set);
+  assembled_mass_matrix = linalg->getNewMatrix(set);
   linalg->exportMatrixFromOverlapped(set, assembled_mass_matrix, M1_over);
   linalg->fillComplete(assembled_mass_matrix);
 
   // One map per variable block (same as block_prec). Identifies which block is edge (HCURL) for M1/D0.
-  std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > blockMaps = linalg->buildBlockMaps(set);
+  blockMaps = linalg->buildBlockMaps(set);
   TEUCHOS_TEST_FOR_EXCEPTION(blockMaps.empty(), std::runtime_error,
     "Block-triangular auxiliary setup requires at least one block map.");
 
@@ -221,6 +244,20 @@ void SolverManager<Node>::setupBlockTriangularAuxiliary(const size_t & set,
   cntxt->block.mass_matrices.assign(blockMaps.size(), Teuchos::null);
   for (size_t b = 0; b < blockMaps.size(); ++b) {
     cntxt->block.mass_matrices[b] = linalg->extractDiagonalBlock(assembled_mass_matrix, blockMaps[b]);
+  }
+}
+
+// ========================================================================================
+// ========================================================================================
+
+// False means no split asked for D0 or distance-laplacian coordinates, so the cached
+// block mass matrices are all the auxiliary data needed.
+template<class Node>
+bool SolverManager<Node>::resolveAuxiliaryBases(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
+                                               AuxiliaryBasisSpec & bases) {
+  bool blockSublistWantsD0 = false;
+  for (size_t r = 0; r < cntxt->numSplits(); ++r) {
+    blockSublistWantsD0 = blockSublistWantsD0 || declaresAuxiliaryBases(cntxt->splitSettings(r));
   }
 
   // Complete HGRAD and HCURL settings request distance-laplacian coordinates.
@@ -247,10 +284,8 @@ void SolverManager<Node>::setupBlockTriangularAuxiliary(const size_t & set,
     }
   }
 
-  // The mass-only path does not need D0 or coordinates.
   if (!needs_distance_laplacian_coords && !blockSublistWantsD0) {
-    debugger->print("**** setupBlockTriangularAuxiliary: done (mass-only, set " + std::to_string(set) + ")");
-    return;
+    return false;
   }
 
   // Basis settings live in a split sublist, or in the monolithic settings.
@@ -295,10 +330,34 @@ void SolverManager<Node>::setupBlockTriangularAuxiliary(const size_t & set,
               << std::endl;
   }
 
+  bases.hgrad_name  = hgrad_basis;
+  bases.hcurl_name  = hcurl_basis;
+  bases.hgrad_order = hgrad_order;
+  bases.hcurl_order = hcurl_order;
+  return true;
+}
+
+// ========================================================================================
+// ========================================================================================
+
+// D0 on the primary edge numbering, and M1 restricted to the edge block.
+template<class Node>
+void SolverManager<Node>::buildAuxiliaryGradient(const size_t & set,
+                                                const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
+                                                const AuxiliaryBasisSpec & bases,
+                                                const matrix_RCP & assembled_mass_matrix,
+                                                const std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > & blockMaps,
+                                                size_t & edgeBlock,
+                                                Teuchos::RCP<panzer::DOFManager> & hgrad_dof) {
+  const std::string & hgrad_basis = bases.hgrad_name;
+  const std::string & hcurl_basis = bases.hcurl_name;
+  const int hgrad_order = bases.hgrad_order;
+  const int hcurl_order = bases.hcurl_order;
+
   Teuchos::RCP<panzer::ConnManager> conn = mesh->getSTKConnManager();
 
   // Panzer DOF managers for auxiliary H(grad) and H(curl) on the mesh (used to build D0).
-  Teuchos::RCP<panzer::DOFManager> hgrad_dof = Teuchos::rcp(new panzer::DOFManager());
+  hgrad_dof = Teuchos::rcp(new panzer::DOFManager());
   hgrad_dof->setConnManager(conn, *(Comm->getRawMpiComm()));
   hgrad_dof->setOrientationsRequired(false);
 
@@ -337,7 +396,7 @@ void SolverManager<Node>::setupBlockTriangularAuxiliary(const size_t & set,
 
   // identify edge block by basis type
   const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > aux_edge_map = cntxt->refMaxwell.D0_matrix->getRangeMap();
-  size_t edgeBlock = 0;
+  edgeBlock = 0;
   const auto & setBasis = useBasis[set][0];
   for (size_t v = 0; v < setBasis.size() && v < blockMaps.size(); ++v) {
     const LO bind = setBasis[v];
@@ -433,6 +492,21 @@ void SolverManager<Node>::setupBlockTriangularAuxiliary(const size_t & set,
       *cntxt->refMaxwell.D0_matrix, edge_block_map, d0_col_map, nodal_map, edge_block_map,
       rows, block_prec::detail::KeepAllEntries());
   }
+}
+
+// ========================================================================================
+// ========================================================================================
+
+// Nodal coordinates, lumped nodal mass, and the edge coordinates MueLu aggregates on.
+template<class Node>
+void SolverManager<Node>::buildAuxiliaryNodalData(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
+                                                 const AuxiliaryBasisSpec & bases,
+                                                 const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
+                                                 const std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > & blockMaps,
+                                                 const size_t edgeBlock) {
+  const int hgrad_order = bases.hgrad_order;
+  const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > nodal_map = cntxt->refMaxwell.D0_matrix->getDomainMap();
+  const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > edge_block_map = blockMaps[edgeBlock];
 
   // Nodal coordinates on D0 domain (Hgrad) for RefMaxwell nullspace / mesh info.
   cntxt->refMaxwell.nodal_coords = Teuchos::rcp(
@@ -561,7 +635,6 @@ void SolverManager<Node>::setupBlockTriangularAuxiliary(const size_t & set,
 
 
   
-  debugger->print("**** setupBlockTriangularAuxiliary: end set " + std::to_string(set));
 }
 
 // ========================================================================================
