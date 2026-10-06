@@ -894,11 +894,11 @@ void AnalysisManager::ROL2Solve()
   }
 
   // diagnostic flags
-  const bool do_scan = ROLsettings.sublist("General").get<bool>("Do magnitude scan", false);
+  const bool do_mag_check = ROLsettings.sublist("General").get<bool>("Do magnitude check", false);
   const bool do_gh_check = ROLsettings.sublist("General").get("Do grad+hessvec check", true);
 
-  // Magnitude scan: one forward solve, then restore x if we redirected the probe.
-  if (do_scan)
+  // Magnitude check: one forward solve, then restore x if we redirected the probe.
+  if (do_mag_check)
   {
     Teuchos::RCP<ROL::Vector<ScalarT>> x_save = Teuchos::null;
     if (ROLsettings.sublist("General").isParameter("FD Check Random Seed")) {
@@ -909,12 +909,12 @@ void AnalysisManager::ROL2Solve()
       srand(seed);
       x->randomize(-scale, scale);
       if (comm_->getRank() == 0) {
-        cout << "\n[MAGNITUDE-SCAN] probe at seeded random ctrl (seed=" << seed
+        cout << "\n[MAGNITUDE-CHECK] probe at seeded random ctrl (seed=" << seed
              << ", scale=" << scale << ").\n";
       }
     }
     else if (comm_->getRank() == 0) {
-      cout << "\n[MAGNITUDE-SCAN] probe at the deck's initial iterate.\n";
+      cout << "\n[MAGNITUDE-CHECK] probe at the deck's initial iterate.\n";
     }
     RealT tol = 1.0e-14;
     obj->value(*x, tol);

@@ -13,13 +13,13 @@ before committing to a long optimization.
 
 ## Running
 
-Each test has its own driver (`run.sh`, `run_scan.sh`, `run_exact_sweep.sh`),
+Each test has its own driver (`run.sh`, `run_check.sh`, `run_exact_sweep.sh`),
 and each looks for the solver as `./mrhyde` in its own directory:
 
 ```bash
 cd scale_check
-ln -sf <path-to-build>/src/mrhyde mrhyde && ./run_scan.sh
-MRHYDE_BIN=<path-to-build>/src/mrhyde ./run_scan.sh   # or skip the link
+ln -sf <path-to-build>/src/mrhyde mrhyde && ./run_check.sh
+MRHYDE_BIN=<path-to-build>/src/mrhyde ./run_check.sh   # or skip the link
 ```
 
 ## Flags
@@ -27,7 +27,7 @@ MRHYDE_BIN=<path-to-build>/src/mrhyde ./run_scan.sh   # or skip the link
 All live under `Analysis:ROL2:General:`. Turn on only what you need.
 
 ```yaml
-Do magnitude scan: true           # per-term unweighted and weighted values
+Do magnitude check: true          # per-term unweighted and weighted values
 Do grad+hessvec check: true       # ROL gradient and HessVec FD diagnostics
 Do exact hessvec check: true      # HessVec finite difference table
 Do algebraic hessvec check: true  # H*0, bilinearity, Rayleigh
