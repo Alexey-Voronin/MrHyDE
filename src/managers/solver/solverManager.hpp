@@ -90,6 +90,8 @@ public:
    * @brief Set up mass matrix actions for discretized parameters.
    */
   void setupDiscretizedParamMass();
+  vector<bool> resolveParamRieszMetric();
+  void completeParamRieszDiagonal(matrix_RCP & riesz, vector_RCP & diag);
   
   /**
    * @brief Assign a Butcher tableau to a physics set.
@@ -333,6 +335,11 @@ public:
   bool allowBacktracking;        // Allow Newton backtracking
   bool store_vectors;            // Store iteration histories
   bool use_param_mass;           // Use parameter mass matrix
+  string param_riesz_type;       // mass, sobolev, or regularizer
+  string param_riesz_apply;      // diagonal or exact
+  string param_riesz_blocks;     // blank means every block
+  string param_riesz_file;       // blank means the operator is not written
+  ScalarT param_riesz_l2_weight, param_riesz_curl_weight;
   bool print_mass;           // print mass matrix and lumped mass
   
   vector<vector<vector<ScalarT>>> scalarDirichletValues; // Dirichlet data per set/block/var

@@ -26,7 +26,10 @@ using namespace MrHyDE;
 template<class Node>
 bool LinearAlgebraInterface<Node>::getJacobianReuse(const size_t & set) {
   bool reuse = false;
-  if (context[set]->reuse_matrix && context[set]->have_matrix) {
+  // have_matrix is set when the matrix is allocated, so also require that it was assembled:
+  // a step whose residual is zero skips the solve and leaves the cached matrix unfilled.
+  if (context[set]->reuse_matrix && context[set]->have_matrix &&
+      context[set]->matrix->isFillComplete()) {
     reuse = true;
   }
   return reuse;

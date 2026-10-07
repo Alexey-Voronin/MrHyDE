@@ -286,13 +286,19 @@ void AssemblyManager<Node>::getWeightedMass(const size_t & set,
 
 template<class Node>
 void AssemblyManager<Node>::getParamMass(matrix_RCP & mass,
-                                         vector_RCP & diagMass) {
+                                         vector_RCP & diagMass,
+                                         const ScalarT & l2_weight,
+                                         const ScalarT & curl_weight,
+                                         const vector<bool> & include_block) {
   
   Teuchos::TimeMonitor localtimer(*set_init_timer);
   
   using namespace std;
 
   debugger->print("**** Starting AssemblyManager::getParamMass ...");
+  
+  // The plain mass keeps its own element kernel, so the released path is unchanged.
+  bool combine_terms = (curl_weight != 0.0) || (l2_weight != 1.0);
   
   typedef typename Node::execution_space LA_exec;
   bool use_atomics_ = false;
@@ -325,6 +331,10 @@ void AssemblyManager<Node>::getParamMass(matrix_RCP & mass,
   }
   
   for (size_t block=0; block<groups.size(); ++block) {
+    
+    if (!include_block[block]) {
+      continue;
+    }
     
     auto offsets = wkset[block]->paramoffsets;
     auto numDOF = groupData[block]->num_param_dof;
@@ -392,7 +402,8 @@ void AssemblyManager<Node>::getParamMass(matrix_RCP & mass,
          */
       }
       else {
-        auto localmass = this->getParamMass(block, grp);
+        auto localmass = combine_terms ? this->getParamRiesz(block, grp, l2_weight, curl_weight)
+                                       : this->getParamMass(block, grp);
       
         if (data_avail) {
         
@@ -1060,6 +1071,102 @@ CompressedView<View_Sc3> AssemblyManager<Node>::getParamMass(const int & block, 
   }
 
   return mass;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+// Get a local Riesz matrix on the parameter space: l2_weight*(phi_i,phi_j) plus
+// curl_weight*(curl phi_i, curl phi_j)
+///////////////////////////////////////////////////////////////////////////////////////
+
+template<class Node>
+CompressedView<View_Sc3> AssemblyManager<Node>::getParamRiesz(const int & block, const size_t & grp,
+                                                              const ScalarT & l2_weight,
+                                                              const ScalarT & curl_weight) {
+
+  auto numDOF = groupData[block]->num_param_dof;
+
+  View_Sc3 riesz_view("local param riesz", groups[block][grp]->numElem,
+                      groups[block][grp]->paramLIDs.extent(1),
+                      groups[block][grp]->paramLIDs.extent(1));
+  CompressedView<View_Sc3> riesz(riesz_view);
+
+  auto cwts = groups[block][grp]->wts;
+  auto offsets = wkset[block]->paramoffsets;
+
+  vector<CompressedView<View_Sc4>> tbasis, tbasis_curl;
+  if (groups[block][grp]->storeAll || groupData[block]->use_basis_database) {
+    tbasis = groups[block][grp]->basis;
+    tbasis_curl = groups[block][grp]->basis_curl;
+  }
+  else {
+    vector<View_Sc4> tmpbasis, tmpbasis_grad, tmpbasis_curl, tmpbasis_nodes;
+    vector<View_Sc3> tmpbasis_div;
+    disc->getPhysicalVolumetricBasis(groupData[block], groups[block][grp]->localElemID,
+                                     tmpbasis, tmpbasis_grad, tmpbasis_curl,
+                                     tmpbasis_div, tmpbasis_nodes);
+    for (size_t i=0; i<tmpbasis.size(); ++i) {
+      tbasis.push_back(CompressedView<View_Sc4>(tmpbasis[i]));
+      tbasis_curl.push_back(CompressedView<View_Sc4>(tmpbasis_curl[i]));
+    }
+  }
+
+  for (size_type n=0; n<numDOF.extent(0); n++) {
+
+    string btype = wkset[block]->basis_types[wkset[block]->paramusebasis[n]];
+    auto off = subview(offsets,n,ALL());
+    ScalarT l2wt = l2_weight;
+
+    auto cbasis = tbasis[wkset[block]->paramusebasis[n]];
+    if (btype.substr(0,5) == "HGRAD" || btype.substr(0,4) == "HVOL") {
+      parallel_for("Group get param riesz l2",
+                   RangePolicy<AssemblyExec>(0,riesz.extent(0)),
+                   MRHYDE_LAMBDA (const size_type e ) {
+        for (size_type i=0; i<cbasis.extent(1); i++ ) {
+          for (size_type j=0; j<cbasis.extent(1); j++ ) {
+            for (size_type k=0; k<cbasis.extent(2); k++ ) {
+              riesz(e,off(i),off(j)) += l2wt*cbasis(e,i,k,0)*cbasis(e,j,k,0)*cwts(e,k);
+            }
+          }
+        }
+      });
+    }
+    else if (btype.substr(0,4) == "HDIV" || btype.substr(0,5) == "HCURL") {
+      parallel_for("Group get param riesz l2",
+                   RangePolicy<AssemblyExec>(0,riesz.extent(0)),
+                   MRHYDE_LAMBDA (const size_type e ) {
+        for (size_type i=0; i<cbasis.extent(1); i++ ) {
+          for (size_type j=0; j<cbasis.extent(1); j++ ) {
+            for (size_type k=0; k<cbasis.extent(2); k++ ) {
+              for (size_type dim=0; dim<cbasis.extent(3); dim++ ) {
+                riesz(e,off(i),off(j)) += l2wt*cbasis(e,i,k,dim)*cbasis(e,j,k,dim)*cwts(e,k);
+              }
+            }
+          }
+        }
+      });
+    }
+
+    if (curl_weight != 0.0 && btype.substr(0,5) == "HCURL") {
+      auto ccurl = tbasis_curl[wkset[block]->paramusebasis[n]];
+      ScalarT curlwt = curl_weight;
+      parallel_for("Group get param riesz curl",
+                   RangePolicy<AssemblyExec>(0,riesz.extent(0)),
+                   MRHYDE_LAMBDA (const size_type e ) {
+        for (size_type i=0; i<ccurl.extent(1); i++ ) {
+          for (size_type j=0; j<ccurl.extent(1); j++ ) {
+            for (size_type k=0; k<ccurl.extent(2); k++ ) {
+              for (size_type dim=0; dim<ccurl.extent(3); dim++ ) {
+                riesz(e,off(i),off(j)) += curlwt*ccurl(e,i,k,dim)*ccurl(e,j,k,dim)*cwts(e,k);
+              }
+            }
+          }
+        }
+      });
+    }
+
+  }
+
+  return riesz;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////

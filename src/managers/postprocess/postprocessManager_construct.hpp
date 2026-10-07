@@ -154,6 +154,10 @@ void PostprocessManager<Node>::setup() {
       }
     }
   }
+  else if (analysis_type == "hessian") {
+    // The column loop drives tangent and second-order adjoint sweeps, which read the stored trajectory.
+    save_solution = true;
+  }
   
   ///////////////////////////////////////////////////
   // Default append string for output

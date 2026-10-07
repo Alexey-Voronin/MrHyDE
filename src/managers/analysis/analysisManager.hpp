@@ -105,6 +105,19 @@ public:
   /** @brief Perform a second ROL-based optimization strategy. */
   void ROL2Solve();
 
+  void hessianSolve();
+
+  // Writes per-DoF geometry and region masks for the control and state spaces.
+  void dumpDofData(const string & control_blocks, bool write_files,
+                   std::vector<int> & ctrl_mask);
+
+  void hessianEigenvalues(Teuchos::ParameterList & hset,
+                          const Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode> > & Hop,
+                          const string & prefix, const int & neig,
+                          const int & ctrl_dim, const bool & hermitian);
+
+  void writeTangentTrace(const int & col, const int & slab);
+
   /** @brief Perform stochastic optimization using ROL. */
   void ROLStochSolve();
 

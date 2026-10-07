@@ -756,7 +756,10 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
     diagParamMass_over = diagParamMass;
   }
   
-  assembler->getParamMass(pmass,diagParamMass_over);
+  vector<bool> include_block = this->resolveParamRieszMetric();
+  
+  assembler->getParamMass(pmass, diagParamMass_over,
+                          param_riesz_l2_weight, param_riesz_curl_weight, include_block);
   
   if (linalg->getHaveOverlapped()) {
     linalg->exportParamVectorFromOverlapped(diagParamMass, diagParamMass_over);
@@ -766,13 +769,178 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
   }
   
 
+  // Before fillComplete: the owned matrix has no entry in a row the assembly never
+  // reached, so the missing diagonal has to be inserted rather than replaced.
+  this->completeParamRieszDiagonal(paramMass, diagParamMass);
+  
   if (compute_matrix) {
     linalg->fillComplete(paramMass);
   }
   
-  params->setParamMass(diagParamMass, paramMass);
+  if (!param_riesz_file.empty()) {
+    linalg->writeMatrixToFile(paramMass, param_riesz_file);
+  }
+  
+  Teuchos::RCP<MrHyDE_ParamRiesz> riesz;
+  // Only the exact form needs a solver; the diagonal is inverted entrywise.
+  if (param_riesz_apply == "exact") {
+    riesz = Teuchos::rcp(new MrHyDE_ParamRiesz(paramMass));
+  }
+  
+  params->setParamMass(diagParamMass, riesz);
+  
+  if (verbosity >= 5 && Comm->getRank() == 0) {
+    const auto nblocks_used = std::count(include_block.begin(), include_block.end(), true);
+    std::cout << "[RieszMap] P = " << param_riesz_l2_weight << "*M + "
+              << param_riesz_curl_weight << "*K over " << nblocks_used << " of "
+              << include_block.size() << " blocks, applied " << param_riesz_apply
+              << ", dim " << paramMass->getGlobalNumRows() << std::endl;
+  }
   
   debugger->print("**** Finished SolverManager::setupDiscretizedParamMass()");
+  
+}
+
+// ========================================================================================
+// Type "regularizer" takes the weights and blocks from the objective's regularization terms.
+// ========================================================================================
+
+template<class Node>
+vector<bool> SolverManager<Node>::resolveParamRieszMetric() {
+  
+  TEUCHOS_TEST_FOR_EXCEPTION(param_riesz_type != "mass" && param_riesz_type != "sobolev"
+                             && param_riesz_type != "regularizer", std::runtime_error,
+                             "Error: Parameter Riesz map -> type must be mass, sobolev or regularizer");
+  TEUCHOS_TEST_FOR_EXCEPTION(param_riesz_apply != "diagonal" && param_riesz_apply != "exact",
+                             std::runtime_error,
+                             "Error: Parameter Riesz map -> apply must be diagonal or exact");
+  TEUCHOS_TEST_FOR_EXCEPTION(param_riesz_apply == "exact" && (assembler->lump_mass || assembler->matrix_free),
+                             std::runtime_error,
+                             "Error: Parameter Riesz map -> apply = exact needs an assembled matrix");
+  
+  vector<bool> include_block(blocknames.size(), false);
+  
+  if (param_riesz_type == "regularizer") {
+    
+    TEUCHOS_TEST_FOR_EXCEPTION(postproc == Teuchos::null, std::runtime_error,
+                               "Error: Parameter Riesz map -> type = regularizer needs the postprocess manager");
+    
+    param_riesz_l2_weight = 0.0;
+    param_riesz_curl_weight = 0.0;
+    std::set<string> l2_terms, curl_terms;
+    std::map<std::pair<string,ScalarT>, vector<bool> > term_blocks;
+    
+    // The objective is instantiated once per block, so each term is seen once per
+    // block it lives on and only its first instance contributes a weight.
+    for (size_t r=0; r<postproc->objectives.size(); ++r) {
+      for (size_t k=0; k<postproc->objectives[r].regularizations.size(); ++k) {
+        const regularization & reg = postproc->objectives[r].regularizations[k];
+        if (reg.type != "integrated" || reg.weight == 0.0 || reg.location != "volume") {
+          continue;
+        }
+        const string key = postproc->objectives[r].name + "/" + reg.name;
+        term_blocks[{key, reg.weight}].resize(blocknames.size(), false);
+        term_blocks[{key, reg.weight}][reg.block] = true;
+        include_block[reg.block] = true;
+        if (reg.function.find("curl(") != std::string::npos) {
+          if (curl_terms.insert(key).second) { param_riesz_curl_weight += reg.weight; }
+        }
+        else {
+          if (l2_terms.insert(key).second) { param_riesz_l2_weight += reg.weight; }
+        }
+      }
+    }
+    
+    TEUCHOS_TEST_FOR_EXCEPTION(l2_terms.empty() && curl_terms.empty(), std::runtime_error,
+                               "Error: Parameter Riesz map -> type = regularizer found no nonzero volume regularization");
+    for (auto it=term_blocks.begin(); it!=term_blocks.end(); ++it) {
+      TEUCHOS_TEST_FOR_EXCEPTION(it->second != include_block, std::runtime_error,
+                                 "Error: Parameter Riesz map -> type = regularizer needs every term on the same blocks with one weight");
+    }
+    
+    // Print the split: a term the curl test misreads is otherwise invisible.
+    if (verbosity >= 5 && Comm->getRank() == 0) {
+      std::cout << "[RieszMap] matched the regularizer: l2 from";
+      for (auto it=l2_terms.begin(); it!=l2_terms.end(); ++it) { std::cout << " " << *it; }
+      if (l2_terms.empty()) { std::cout << " nothing"; }
+      std::cout << ", curl from";
+      for (auto it=curl_terms.begin(); it!=curl_terms.end(); ++it) { std::cout << " " << *it; }
+      if (curl_terms.empty()) { std::cout << " nothing"; }
+      std::cout << std::endl;
+    }
+    
+  }
+  else {
+    
+    if (param_riesz_type == "mass") { // the l2 piece alone
+      param_riesz_curl_weight = 0.0;
+    }
+    if (param_riesz_blocks.empty()) { // the parameter field's own domain
+      include_block.assign(blocknames.size(), true);
+    }
+    else {
+      for (size_t b=0; b<blocknames.size(); ++b) {
+        if (param_riesz_blocks.find(blocknames[b]) != std::string::npos) {
+          include_block[b] = true;
+        }
+      }
+    }
+    
+  }
+  
+  const auto nused = std::count(include_block.begin(), include_block.end(), true);
+  TEUCHOS_TEST_FOR_EXCEPTION(nused == 0, std::runtime_error,
+                             "Error: Parameter Riesz map -> blocks selected no element blocks");
+  // The curl-curl term annihilates discrete gradients, so it is singular on its own.
+  TEUCHOS_TEST_FOR_EXCEPTION(param_riesz_l2_weight == 0.0 && param_riesz_curl_weight != 0.0,
+                             std::runtime_error,
+                             "Error: Parameter Riesz map -> a curl term with l2 weight 0 is singular");
+  // A row sum of a curl-curl block is near zero wherever the gradients dominate,
+  // so lumping it does not give a usable diagonal.
+  TEUCHOS_TEST_FOR_EXCEPTION(assembler->lump_mass && param_riesz_curl_weight != 0.0,
+                             std::runtime_error,
+                             "Error: Parameter Riesz map -> a curl term cannot be lumped; unset lump mass");
+  
+  return include_block;
+}
+
+// ========================================================================================
+// Dofs outside the metric's blocks carry no control; give them the mean live diagonal so P is invertible.
+// ========================================================================================
+
+template<class Node>
+void SolverManager<Node>::completeParamRieszDiagonal(matrix_RCP & riesz, vector_RCP & diag) {
+  
+  auto dview = diag->template getLocalView<HostDevice>(Tpetra::Access::ReadWrite);
+  
+  ScalarT local_sum = 0.0;
+  GO local_live = 0;
+  for (size_t i=0; i<dview.extent(0); ++i) {
+    if (dview(i,0) != 0.0) { local_sum += dview(i,0); ++local_live; }
+  }
+  
+  ScalarT global_sum = 0.0;
+  GO global_live = 0;
+  Teuchos::reduceAll<int,ScalarT>(*Comm, Teuchos::REDUCE_SUM, 1, &local_sum, &global_sum);
+  Teuchos::reduceAll<int,GO>(*Comm, Teuchos::REDUCE_SUM, 1, &local_live, &global_live);
+  
+  TEUCHOS_TEST_FOR_EXCEPTION(global_live == 0, std::runtime_error,
+                             "Error: the parameter Riesz operator assembled nothing");
+  
+  const ScalarT fill = global_sum/static_cast<ScalarT>(global_live);
+  
+  for (size_t i=0; i<dview.extent(0); ++i) {
+    if (dview(i,0) != 0.0) { continue; }
+    dview(i,0) = fill;
+    const GO grow = riesz->getRowMap()->getGlobalElement(i);
+    riesz->insertGlobalValues(grow, Teuchos::tuple<GO>(grow), Teuchos::tuple<ScalarT>(fill));
+  }
+  
+  const GO global_dead = static_cast<GO>(diag->getGlobalLength()) - global_live;
+  if (global_dead > 0 && verbosity >= 5 && Comm->getRank() == 0) {
+    std::cout << "[RieszMap] " << global_dead << " parameter dofs lie outside the metric's"
+              << " blocks and were given a diagonal of " << fill << std::endl;
+  }
   
 }
 

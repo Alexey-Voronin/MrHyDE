@@ -203,6 +203,23 @@ static void runOptCheckBlock(Teuchos::ParameterList & ROLsettings,
 
   auto & general = ROLsettings.sublist("General");
 
+  // ROL's "apply and dual" line catches a metric that reaches dot() but not dual().
+  if (general.get("Do vector check", false)) {
+    printSectionBanner(rank, "Vector space check");
+    // checkVector works from the vector it is called on, so a deck whose initial
+    // iterate is zero makes every line of it vacuously zero. Seed all three.
+    Teuchos::RCP<ROL::Vector<ScalarT>> vx = x->clone(), vy = x->clone(), vz = x->clone();
+    seedDirection(ROLsettings, vx, 1);
+    seedDirection(ROLsettings, vy, 2);
+    seedDirection(ROLsettings, vz, 3);
+    std::vector<ScalarT> vcheck = vx->checkVector(*vy, *vz, (rank == 0), std::cout);
+    ScalarT worst = 0.0;
+    for (size_t i=0; i<vcheck.size(); ++i) { worst = std::max(worst, std::abs(vcheck[i])); }
+    if (rank == 0) {
+      std::cout << "[VECTOR-CHECK] worst consistency error = " << worst << std::endl;
+    }
+  }
+
   if (general.get("Do exact hessvec check", false)) {
     printSectionBanner(rank, "Hessian-vector check");
     runFDGradientCheck(ROLsettings, x, rank, "HESSVEC-CHECK", [&]() {
@@ -326,6 +343,9 @@ void AnalysisManager::run(std::string &analysis_type) {
   else if (analysis_type == "ROL2") {
     this->ROL2Solve();
   }
+  else if (analysis_type == "hessian") {
+    this->hessianSolve();
+  }
   else if (analysis_type == "ROLStoch") {
     this->ROLStochSolve();
   }
@@ -351,7 +371,7 @@ void AnalysisManager::run(std::string &analysis_type) {
   }
   else {
     std::cout << "Unknown analysis option: " << analysis_type << std::endl;
-    std::cout << "Valid and tested options: dry run, forward, adjoint, forward+adjoint, UQ, ROL, ROL2, DCI" << std::endl;
+    std::cout << "Valid and tested options: dry run, forward, adjoint, forward+adjoint, UQ, ROL, ROL2, hessian, DCI" << std::endl;
   }
   
   // There are several cases where one may want to write the parameters to file
@@ -756,17 +776,6 @@ void AnalysisManager::ROLSolve()
     respOUT2.close();
   }
 
-  /*
-   if (settings_->sublist("postproc_ess").get("write Hessian",false)){
-   obj->printHess(settings_->sublist("postproc_ess").get("Hessian output file","hess.dat"),x,comm_->getRank());
-   }
-   if (settings_->sublist("Analysis").get("write output",false)) {
-   ScalarT val = 0.0;
-   solver_->forwardModel(val);
-   //postproc_->writeSolution(settings_->sublist("postproc_ess").get<string>("Output File","output"));
-   }
-   */
-
   if (postproc_plot)
   {
     postproc_->write_solution = true;
@@ -947,17 +956,6 @@ void AnalysisManager::ROL2Solve()
   rolSolver.solve(*outStream);
 
   // ScalarT optTime = timer.stop();
-
-  /*
-   if (settings_->sublist("postproc_ess").get("write Hessian",false)){
-   obj->printHess(settings_->sublist("postproc_ess").get("Hessian output file","hess.dat"),x,comm_->getRank());
-   }
-   if (settings_->sublist("Analysis").get("write output",false)) {
-   ScalarT val = 0.0;
-   solver_->forwardModel(val);
-   //postproc_->writeSolution(settings_->sublist("postproc_ess").get<string>("Output File","output"));
-   }
-   */
 
   bool want_report = postproc_plot
                      || postproc_->compute_error
@@ -1621,7 +1619,7 @@ MrHyDE_OptVector AnalysisManager::recoverParametersFromFile() {
     }
   }
   
-  MrHyDE_OptVector newparams(field_params, scalar_params, 1.0, params_->diagParamMass, params_->paramMass, comm_->getRank());
+  MrHyDE_OptVector newparams(field_params, scalar_params, 1.0, params_->diagParamMass, params_->paramRiesz, comm_->getRank());
   return newparams;
   
 }

@@ -69,6 +69,18 @@ Comm(Comm_), settings(settings_), mesh(mesh_), disc(disc_), physics(physics_), a
   
   use_param_mass = settings->sublist("Solver").get<bool>("use parameter mass",false);
   
+  const bool use_param_riesz = settings->sublist("Solver").isSublist("Parameter Riesz map");
+  use_param_mass = use_param_mass || use_param_riesz;
+  Teuchos::ParameterList no_riesz;
+  Teuchos::ParameterList & rset = use_param_riesz ?
+                                  settings->sublist("Solver").sublist("Parameter Riesz map") : no_riesz;
+  param_riesz_type = rset.get<string>("type", use_param_riesz ? "regularizer" : "mass");
+  param_riesz_apply = rset.get<string>("apply", use_param_riesz ? "exact" : "diagonal");
+  param_riesz_l2_weight = rset.get<double>("l2 weight",1.0);
+  param_riesz_curl_weight = rset.get<double>("curl weight",0.0);
+  param_riesz_blocks = rset.get<string>("blocks","");
+  param_riesz_file = rset.get<string>("output file","");
+  
   line_search = false;//settings->sublist("Solver").get<bool>("Use Line Search","false");
   store_adjPrev = false;
   isTransient = false;
