@@ -572,7 +572,7 @@ int SolverManager<Node>::nonlinearSolver(const size_t & set, const size_t & stag
               currJ->setAllToScalar(0.0);
               currJ_over->setAllToScalar(0.0);
               auto dummy_res_over = linalg->getNewOverlappedVector(set);
-              assembler->assembleJacRes(set, stage, sol, sol_stage, sol_prev, phi, phi_stage, phi_prev, build_jacobian, false, false, true, step,
+              assembler->assembleJacRes(set, stage, sol, sol_stage, sol_prev, phi, phi_stage, phi_prev, true, false, false, true, step,
                                         dummy_res_over, currJ_over, isTransient, current_time, is_adjoint, store_adjPrev,
                                         params->num_active_params, paramvec, paramdot, is_final_time, deltat);
               linalg->fillComplete(currJ_over);

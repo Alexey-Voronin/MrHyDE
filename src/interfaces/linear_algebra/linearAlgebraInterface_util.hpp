@@ -153,6 +153,17 @@ void LinearAlgebraInterface<Node>::resetJacobian() {
 // ========================================================================================
 
 template<class Node>
+void LinearAlgebraInterface<Node>::startSweep(const bool adjoint) {
+  this->resetAllJacobian();
+  for (size_t set=0; set<context.size(); ++set) {
+    context[set]->setSweepKind(adjoint);
+  }
+}
+
+// ========================================================================================
+// ========================================================================================
+
+template<class Node>
 void LinearAlgebraInterface<Node>::resetL2Jacobian() {
   for (size_t set=0; set<context_L2.size(); ++set) {
     context_L2[set]->reset();

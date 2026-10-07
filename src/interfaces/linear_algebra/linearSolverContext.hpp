@@ -178,6 +178,15 @@ public:
     jacobian_rebuilt_this_step = true;
   }
   
+  // With 'reuse Jacobian across sweeps', restore the Jacobian kept for this sweep's kind.
+  void setSweepKind(const bool adjoint) {
+    sweep_kind = adjoint ? 1 : 0;
+    if (reuse_across_sweeps && !kept_matrix[sweep_kind].is_null()) {
+      matrix = kept_matrix[sweep_kind];
+      have_matrix = true;
+    }
+  }
+
   // Parsed deck
   string amesos_type;                 // KLU2, SuperLU, ...
   string belos_type;                  // Block GMRES, BiCGStab, GCRODR, ...
@@ -188,6 +197,7 @@ public:
   bool right_preconditioner;
   string preconditioner_reuse_type;   // none, update, full
   bool reuse_matrix;
+  bool reuse_across_sweeps = false;   // keep the forward and adjoint Jacobians for the run
   ScalarT stage_alpha_u = 1.0;        // DIRK spatial-term scaling a_ss/b_s
 
   // Runtime state
@@ -231,6 +241,11 @@ public:
   bool reuse_belos_solver_mgr;
 
   Teuchos::RCP<Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> > amesos_solver;
+
+  // Index 0 forward, 1 adjoint; filled only with 'reuse Jacobian across sweeps'.
+  int sweep_kind = 0;
+  matrix_RCP kept_matrix[2];
+  Teuchos::RCP<Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> > kept_amesos[2];
   Teuchos::RCP<MueLu::TpetraOperator<ScalarT, LO, GO, Node> > prec;      // monolithic AMG
   Teuchos::RCP<Ifpack2::Preconditioner<ScalarT, LO, GO, Node> > prec_dd; // domain decomposition
   Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,Node> > prec_block;        // block diagonal/triangular
@@ -537,6 +552,8 @@ private:
     }
     right_preconditioner = settings.get<bool>("right preconditioner",false);
     reuse_matrix = settings.get<bool>("reuse Jacobian",false);
+    // Asserts the operator depends on neither the control nor the state; leave it off otherwise.
+    reuse_across_sweeps = settings.get<bool>("reuse Jacobian across sweeps",false);
     schur.approximation_type = "base";
     schur.mass_scale = 1.0;
     schur.damping = Teuchos::ScalarTraits<ScalarT>::one();

@@ -19,7 +19,23 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
 
   Teuchos::TimeMonitor localtimer(*linearsolvertimer);
   
-  if (cntxt->use_direct) {
+  if (cntxt->use_direct && cntxt->reuse_across_sweeps) {
+    // A kept Jacobian is factored when it is assembled; every other solve only back-solves.
+    Teuchos::RCP<Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> > & kept = cntxt->kept_amesos[cntxt->sweep_kind];
+    if (kept.is_null()) {
+      kept = Amesos2::create<LA_CrsMatrix,LA_MultiVector>(cntxt->amesos_type, J, r, soln);
+      kept->symbolicFactorization();
+      kept->numericFactorization();
+    }
+    else if (cntxt->jacobian_rebuilt_this_step) {
+      kept->setA(J, Amesos2::SYMBFACT);
+      kept->numericFactorization();
+    }
+    kept->setX(soln);
+    kept->setB(r);
+    kept->solve();
+  }
+  else if (cntxt->use_direct) {
     if (!cntxt->have_symb_factor) {
       cntxt->amesos_solver = Amesos2::create<LA_CrsMatrix,LA_MultiVector>(cntxt->amesos_type, J, r, soln);
       cntxt->amesos_solver->symbolicFactorization();
@@ -217,6 +233,10 @@ void LinearAlgebraInterface<Node>::maybeReportConditionEstimate(
 template<class Node>
 void LinearAlgebraInterface<Node>::linearSolver(const size_t & set, matrix_RCP & J, vector_RCP & r, vector_RCP & soln)  {
   context[set]->equation_set_index = set;
+  // Kept here, not at sweep start: setup can leave a mass matrix in the context.
+  if (context[set]->reuse_across_sweeps) {
+    context[set]->kept_matrix[context[set]->sweep_kind] = J;
+  }
   this->linearSolver(context[set],J,r,soln);
 }
 
