@@ -404,6 +404,7 @@ void verifyBlockSystem(const BlockSystem<Node> & blocks,
                        const Teuchos::RCP<typename BlockTypes<Node>::MultiVector> & lumpedMass,
                        const ScalarT damping,
                        const bool useLumpedWeightDiagonal,
+                       const bool useAbsoluteWeightDiagonal,
                        const bool schurIsDiag,
                        const bool requested,
                        const int verbosity) {
@@ -500,7 +501,7 @@ void verifyBlockSystem(const BlockSystem<Node> & blocks,
     Teuchos::RCP<LA_Vector> dinv =
       detail::buildInverseDiagonal<Node>(
         Teuchos::rcp_implicit_cast<const LA_CrsMatrix>(blocks.blocks[0][0]),
-        useLumpedWeightDiagonal, w);
+        useLumpedWeightDiagonal, w, useAbsoluteWeightDiagonal);
     LA_Vector t(blocks.maps[0]), Sx(blocks.maps[1]), mf(blocks.maps[1]);
     LA_Vector dt(blocks.maps[0]);
     blocks.blocks[0][1]->apply(x1, t);

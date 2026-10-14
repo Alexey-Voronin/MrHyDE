@@ -146,6 +146,10 @@ buildBlockOperator(const typename BlockTypes<Node>::CrsMatrixRCP & mat,
       validateRefMaxwellBlockInputs<Node>(mat, cntxt, verbosity);
       tpetraPrec = buildMaxwell1Preconditioner<Node>(mat, cntxt, split, verbosity);
       break;
+    case BlockPrecType::PMultigrid:
+      validateRefMaxwellBlockInputs<Node>(mat, cntxt, verbosity);
+      innerPrec = buildPMultigridPreconditioner<Node>(mat, cntxt, split, label, verbosity);
+      break;
     case BlockPrecType::Direct:
       innerPrec = buildDirectBlockInverse<Node>(cntxt, mat, label, verbosity);
       break;
@@ -195,6 +199,7 @@ inline std::string resolveBlockMethod(Teuchos::ParameterList & blockList) {
   std::string method = blockList.isParameter("preconditioner")
     ? blockList.get<std::string>("preconditioner")
     : blockList.get<std::string>("preconditioner variant", "RELAXATION");
+  if (toUpperAsciiCopy(method) == "MUELU") method = "AMG";
   if (toUpperAsciiCopy(method) != "AMG" &&
       blockList.isParameter("smoother: type") &&
       toUpperAsciiCopy(blockList.get<std::string>("smoother: type")) == "CHEBYSHEV") {
@@ -292,12 +297,14 @@ Teko::LinearOp
 buildSingleBlockPreconditioner(const typename BlockTypes<Node>::CrsMatrixRCP & blockMat,
                                const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
                                const size_t blockIndex,
-                               const bool useRefMaxwellOnBlock0,
                                const int verbosity) {
   const std::string label = "BlockDiag block " + std::to_string(blockIndex);
-  if (blockIndex == 0 && useRefMaxwellOnBlock0) {
-    return buildBlockOperator<Node>(blockMat, cntxt, cntxt->splitSettings(0),
-      BlockPrecType::RefMaxwell, 0, label, verbosity,
+  // AMG and Diagonal stay on the name-based path below, which also takes Ifpack2 smoother names.
+  BlockPrecType type = BlockPrecType::AMG;
+  if (cntxt != Teuchos::null && tryParseBlockPrecType(cntxt->splitPrecType(blockIndex), type) &&
+      type != BlockPrecType::AMG && type != BlockPrecType::Diagonal) {
+    return buildBlockOperator<Node>(blockMat, cntxt, cntxt->splitSettings(blockIndex),
+      type, blockIndex, label, verbosity,
       [] { return Teko::LinearOp(); });
   }
 
@@ -348,8 +355,13 @@ buildSingleBlockPreconditioner(const typename BlockTypes<Node>::CrsMatrixRCP & b
       }
       typedef typename Teuchos::ScalarTraits<ScalarT>::coordinateType CoordScalar;
       Teuchos::RCP<Tpetra::MultiVector<CoordScalar,LO,GO,Node> > dofCoords;
-      if (!cntxt.is_null() && blockIndex < cntxt->block.dof_coords.size()) {
-        dofCoords = cntxt->block.dof_coords[blockIndex];
+      // dof_coords is filled per variable, so match the split by map.
+      if (!cntxt.is_null()) {
+        for (const auto & coords : cntxt->block.dof_coords) {
+          if (!coords.is_null() && coords->getMap()->isSameAs(*preconditioner_matrix->getRowMap())) {
+            dofCoords = coords;
+          }
+        }
       }
       // Associate D0 with the HCURL block by matching its range map.
       return buildAmgBlockOperator<Node>(cntxt, preconditioner_matrix, blockList, blockIndex,

@@ -125,6 +125,13 @@ struct ColumnsFromTable {
   }
 };
 
+// Drops stored zeros, such as the element columns Panzer's interpolations leave in their graph.
+struct DropZeroEntries {
+  KOKKOS_INLINE_FUNCTION LO operator()(const LO, const LO col, ScalarT & value) const {
+    return (value == ScalarT(0)) ? LO(-1) : col;
+  }
+};
+
 // Snaps every surviving entry to its sign and drops what is numerically zero.
 struct SnapEntrySigns {
   using MagT = typename Teuchos::ScalarTraits<ScalarT>::magnitudeType;

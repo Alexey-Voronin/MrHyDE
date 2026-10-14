@@ -163,6 +163,12 @@ inline Teuchos::ParameterList validMaxwell1Params() {
   return v;
 }
 
+inline Teuchos::ParameterList validPMultigridParams() {
+  Teuchos::ParameterList v("p-Multigrid Settings");
+  v.set("xml param file", "");
+  return v;
+}
+
 inline void validateRefMaxwellSettingsSection(const Teuchos::ParameterList & list, const std::string &) {
   list.validateParameters(validRefMaxwellParams());
 }
@@ -177,6 +183,9 @@ inline void validateNestedBlockSublists(const Teuchos::ParameterList & list, con
   }
   if (list.isSublist("Maxwell1 Settings")) {
     validateMaxwell1SettingsSection(list.sublist("Maxwell1 Settings"), sectionName + ".Maxwell1 Settings");
+  }
+  if (list.isSublist("p-Multigrid Settings")) {
+    list.sublist("p-Multigrid Settings").validateParameters(validPMultigridParams());
   }
 }
 
@@ -197,7 +206,7 @@ inline const std::vector<std::string> & mrhydeOwnedKeys() {
     "inner krylov solver", "inner krylov max iters", "inner krylov tol",
     "approximation type", "mass scale",
     "triangle", "damping",
-    "diag use lumped diagonal", "diag use lumped pivot diagonal",
+    "diag use lumped diagonal", "diag use lumped pivot diagonal", "diag use absolute pivot diagonal",
     "filter SM", "filter threshold", "verify complex", "verify Kn consistency",
     "use Kn from M1"
   };
@@ -206,7 +215,7 @@ inline const std::vector<std::string> & mrhydeOwnedKeys() {
 
 inline const std::vector<std::string> & mrhydeOwnedSublists() {
   static const std::vector<std::string> keys = {
-    "AMG Settings", "RefMaxwell Settings", "Maxwell1 Settings"
+    "AMG Settings", "RefMaxwell Settings", "Maxwell1 Settings", "p-Multigrid Settings"
   };
   return keys;
 }

@@ -29,12 +29,15 @@
 #include "Thyra_TpetraLinearOp.hpp"
 #include "Thyra_TpetraThyraWrappers.hpp"
 
+#include <unordered_map>
+
 namespace MrHyDE {
 
 // H(grad)/H(curl) bases a split named for the RefMaxwell/Maxwell1 auxiliary spaces.
 struct AuxiliaryBasisSpec {
   std::string hgrad_name, hcurl_name;
   int hgrad_order = 1, hcurl_order = 1;
+  bool p_multigrid = false;
 };
 
 /**
@@ -120,6 +123,22 @@ public:
   // Resolve the auxiliary bases; false when only the block mass matrices are needed.
   bool resolveAuxiliaryBases(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
                              AuxiliaryBasisSpec & bases);
+  // One-field Panzer DOF manager over every element block.
+  Teuchos::RCP<panzer::DOFManager> buildAuxDofManager(const Teuchos::RCP<panzer::ConnManager> & conn,
+                                                      const std::string & field,
+                                                      const std::vector<basis_RCP> & blockBases,
+                                                      const bool orientations);
+  // Auxiliary GID to the primary GID of the same element DOF; throws on any mismatch.
+  std::unordered_map<GO,GO> auxToPrimaryGids(const size_t & set,
+                                             const Teuchos::RCP<panzer::DOFManager> & aux,
+                                             const std::string & field,
+                                             const size_t var,
+                                             const std::string & label);
+  // Primary row to auxiliary row LID; every owned row must pair with an owned auxiliary row.
+  Kokkos::View<LO*, LA_device> primaryRowTable(const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > & primary_map,
+                                               const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > & aux_map,
+                                               const std::unordered_map<GO,GO> & aux2prim,
+                                               const std::string & label);
   // Build D0 on the primary edge numbering and M1 on the edge block.
   void buildAuxiliaryGradient(const size_t & set,
                               const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
@@ -127,13 +146,33 @@ public:
                               const matrix_RCP & assembled_mass_matrix,
                               const std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > & blockMaps,
                               size_t & edgeBlock,
-                              Teuchos::RCP<panzer::DOFManager> & hgrad_dof);
+                              Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
+                              Teuchos::RCP<panzer::DOFManager> & hcurl_dof);
+  // Discrete curl from the H(curl) target into the H(div) pivot, for 'exact-curl'.
+  void buildAuxiliaryCurl(const size_t & set,
+                          const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
+                          const std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > & blockMaps);
   // Build nodal coordinates, lumped nodal mass, and the edge coordinates.
   void buildAuxiliaryNodalData(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
                                const AuxiliaryBasisSpec & bases,
                                const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
                                const std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > & blockMaps,
                                const size_t edgeBlock);
+  // Coordinates and lumped mass of the H(grad) DOFs on nodal_map; returns GID to coordinates.
+  std::map<GO, std::vector<double> >
+  computeAuxiliaryNodalData(const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
+                            const std::string & hgrad_name,
+                            const int hgrad_order,
+                            const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > & nodal_map,
+                            Teuchos::RCP<typename RefMaxwellData<Node>::LA_CoordMultiVector> & coords,
+                            Teuchos::RCP<LA_MultiVector> & lumped_mass);
+  // p-multigrid coarse level: order-1 D0, P from H(curl)_1 into the E rows, nodal coords and mass.
+  void buildPMultigridCoarseData(const size_t & set,
+                                 const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
+                                 const AuxiliaryBasisSpec & bases,
+                                 const Teuchos::RCP<panzer::DOFManager> & hcurl_dof,
+                                 const size_t edgeBlock,
+                                 const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > & edge_block_map);
   
   /** @brief Finalize workset allocation for assembly */
   void finalizeWorkset();
