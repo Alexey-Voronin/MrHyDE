@@ -45,6 +45,7 @@ struct SchurConfig {
   std::string triangle;             // auto, upper, lower
   bool diagonal_prec_use_lumped;    // 'diag use lumped diagonal', the Diagonal split inverse
   ScalarT mass_scale;               // multiplies M_p in the 'mass' Schur variant
+  bool split_residual_scaling[2];   // 'split residual scaling' per sweep kind (block_prec/SplitScaling.hpp)
 };
 
 // Auxiliary operators for the H(curl) preconditioners, built once per set by
@@ -578,6 +579,7 @@ private:
     schur.correction_use_absolute_weight = false;
     schur.triangle = "auto";
     schur.diagonal_prec_use_lumped = false;
+    schur.split_residual_scaling[0] = schur.split_residual_scaling[1] = false;
   }
 
   void parsePreconditionerSublist() {
@@ -619,6 +621,20 @@ private:
       schur.triangle = block_prec::canonicalSchurTriangle(scheme_sublist.get<string>("triangle"));
     }
     schur.damping = block_prec::scalarParam(scheme_sublist, "damping", schur.damping);
+    if (scheme_sublist.isParameter("split residual scaling")) {
+      const bool on = scheme_sublist.get<bool>("split residual scaling");
+      TEUCHOS_TEST_FOR_EXCEPTION(on && prec_type != "block triangular", std::runtime_error,
+        "'split residual scaling' needs 'preconditioner type: block triangular'.");
+      TEUCHOS_TEST_FOR_EXCEPTION(on && !right_preconditioner, std::runtime_error,
+        "'split residual scaling' needs right preconditioning.");
+      schur.split_residual_scaling[0] = schur.split_residual_scaling[1] = on;
+    }
+    else {
+      // exact-curl cancels the coupling block, so in an adjoint sweep the whole-vector residual test
+      // cannot see the target split's rows unless each split is scaled to its own RHS.
+      schur.split_residual_scaling[1] = prec_type == "block triangular" && right_preconditioner &&
+        block_prec::parseSchurVariant(schur.approximation_type) == block_prec::SchurVariant::ExactCurl;
+    }
     if (block_prec::parseSchurVariant(schur.approximation_type) ==
         block_prec::SchurVariant::ExactCurl) {
       TEUCHOS_TEST_FOR_EXCEPTION(splits.size() != 2 || !split_groups.empty(), std::runtime_error,
