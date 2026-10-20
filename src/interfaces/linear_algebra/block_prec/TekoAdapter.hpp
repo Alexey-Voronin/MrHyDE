@@ -125,6 +125,22 @@ public:
   Teuchos::RCP<const LA_Map> getRangeMap()  const override { return fullMap_; }
   bool hasTransposeApply() const override { return false; }
 
+  size_t numSplits() const { return imports_.size(); }
+  const std::vector<int> & rowSplit() const {
+    if (!rowSplitBuilt_) {
+      rowSplit_.assign(fullMap_->getLocalNumElements(), -1);
+      for (size_t k = 0; k < imports_.size(); ++k) {
+        auto gids = imports_[k]->getTargetMap()->getLocalElementList();
+        for (size_t i = 0; i < static_cast<size_t>(gids.size()); ++i) {
+          const LO lid = fullMap_->getLocalElement(gids[i]);
+          if (lid != Teuchos::OrdinalTraits<LO>::invalid()) rowSplit_[lid] = static_cast<int>(k);
+        }
+      }
+      rowSplitBuilt_ = true;
+    }
+    return rowSplit_;
+  }
+
   void apply(const LA_MultiVector & X,
              LA_MultiVector & Y,
              Teuchos::ETransp mode = Teuchos::NO_TRANS,
@@ -190,6 +206,8 @@ private:
   mutable Teuchos::RCP<Thyra::DefaultProductMultiVector<ScalarT> > xProd_, yProd_;
   mutable Teuchos::RCP<LA_MultiVector> yFull_;
   mutable size_t cached_nvec_ = 0;
+  mutable std::vector<int> rowSplit_;
+  mutable bool rowSplitBuilt_ = false;
 };
 
 namespace detail {
