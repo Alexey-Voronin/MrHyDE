@@ -77,6 +77,7 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
     }
     if (cntxt->use_preconditioner) {
       Teuchos::RCP<LA_Operator> preconditioner = this->buildOrUpdatePreconditioner(cntxt, J);
+      preconditioner = block_prec::maybeScaleSplits<Node>(cntxt, *Problem, preconditioner);
       this->attachPreconditionerToProblem(cntxt, Problem, preconditioner);
     }
     Problem->setProblem();

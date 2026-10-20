@@ -13,6 +13,7 @@
 #include "block_prec/BlockTypes.hpp"
 #include "block_prec/HierarchicalSplitFactory.hpp"
 #include "block_prec/SplitInverse.hpp"
+#include "block_prec/SplitScaling.hpp"
 #include "block_prec/TekoAdapter.hpp"
 
 #include <algorithm>
