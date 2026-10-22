@@ -203,8 +203,19 @@ public:
     }
   }
 
+  // Passes 'Amesos debug level' to a newly created Amesos2 solver.
+  void setAmesosParameters(Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> & solver) const {
+    if (amesos_debug_level <= 0) {
+      return;
+    }
+    Teuchos::RCP<Teuchos::ParameterList> pl = Teuchos::rcp(new Teuchos::ParameterList("Amesos2"));
+    pl->sublist(solver.name()).set("DebugLevel", amesos_debug_level);
+    solver.setParameters(pl);
+  }
+
   // Parsed deck
   string amesos_type;                 // KLU2, SuperLU, ...
+  int amesos_debug_level = 0;         // Amesos2 DebugLevel; 1 reports why KLU2 fails, above 1 dumps every entry
   string belos_type;                  // Block GMRES, BiCGStab, GCRODR, ...
   bool flexible_gmres = false;        // gates the inner-Krylov wraps
   string prec_type;                   // AMG, Ifpack2, domain decomposition, block diagonal/triangular
@@ -334,6 +345,7 @@ private:
 
   void parseBelosAndAmesosSettings(Teuchos::ParameterList & settings) {
     amesos_type = settings.get<string>("Amesos solver","KLU2");
+    amesos_debug_level = settings.get<int>("Amesos debug level", 0);
     belos_type = settings.get<string>("Belos solver","Block GMRES");
     // Accept "Flexible Gmres" at top level or inside "Belos Settings".
     bool topFlex = settings.isType<bool>("Flexible Gmres") && settings.get<bool>("Flexible Gmres");

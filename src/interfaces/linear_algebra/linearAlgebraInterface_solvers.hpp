@@ -27,6 +27,7 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
     const bool refactor = kept.is_null() || cntxt->jacobian_rebuilt_this_step;
     if (kept.is_null()) {
       kept = Amesos2::create<LA_CrsMatrix,LA_MultiVector>(cntxt->amesos_type, J, r, soln);
+      cntxt->setAmesosParameters(*kept);
       kept->symbolicFactorization();
       kept->numericFactorization();
     }
@@ -49,6 +50,7 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
   else if (cntxt->use_direct) {
     if (!cntxt->have_symb_factor) {
       cntxt->amesos_solver = Amesos2::create<LA_CrsMatrix,LA_MultiVector>(cntxt->amesos_type, J, r, soln);
+      cntxt->setAmesosParameters(*cntxt->amesos_solver);
       cntxt->amesos_solver->symbolicFactorization();
       cntxt->have_symb_factor = true;
     }
