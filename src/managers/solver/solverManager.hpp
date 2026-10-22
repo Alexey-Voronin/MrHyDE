@@ -160,11 +160,19 @@ public:
                           const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
                           const std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > & blockMaps);
   // Build nodal coordinates, lumped nodal mass, and the edge coordinates.
-  void buildAuxiliaryNodalData(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
+  void buildAuxiliaryNodalData(const size_t & set,
+                               const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
                                const AuxiliaryBasisSpec & bases,
                                const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
                                const std::vector<Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > > & blockMaps,
                                const size_t edgeBlock);
+  // Constant fields on D0's rows from element-local coordinates; edgeGids(block, elem, gids) gives D0-row GIDs.
+  template<class EdgeGids>
+  vector_RCP buildEdgeNullspace(const matrix_RCP & D0,
+                                const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
+                                const EdgeGids & edgeGids,
+                                GO & unreached,
+                                std::map<GO, std::vector<double> > * gid_to_coords = nullptr);
   // Coordinates and lumped mass of the H(grad) DOFs on nodal_map; returns GID to coordinates.
   std::map<GO, std::vector<double> >
   computeAuxiliaryNodalData(const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,

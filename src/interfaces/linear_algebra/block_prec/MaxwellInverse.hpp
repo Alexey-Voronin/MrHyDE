@@ -38,6 +38,7 @@ struct RefMaxwellXpetraInputs {
   Teuchos::RCP<XpetraMatrix> D0_wrap;
   Teuchos::RCP<XpetraMatrix> M1_wrap;
   Teuchos::RCP<XpetraCoordMV> coords_xpetra;
+  Teuchos::RCP<Xpetra::MultiVector<ScalarT, LO, GO, Node> > nullspace;
 };
 
 template<class Node>
@@ -45,7 +46,8 @@ RefMaxwellXpetraInputs<Node> buildRefMaxwellXpetraInputs(
     const Teuchos::RCP<const Tpetra::CrsMatrix<ScalarT, LO, GO, Node> > & J,
     const Teuchos::RCP<const Tpetra::CrsMatrix<ScalarT, LO, GO, Node> > & D0,
     const Teuchos::RCP<const Tpetra::CrsMatrix<ScalarT, LO, GO, Node> > & M1,
-    const Teuchos::RCP<const Tpetra::MultiVector<typename Teuchos::ScalarTraits<ScalarT>::coordinateType, LO, GO, Node> > & nodal_coords) {
+    const Teuchos::RCP<const Tpetra::MultiVector<typename Teuchos::ScalarTraits<ScalarT>::coordinateType, LO, GO, Node> > & nodal_coords,
+    const Teuchos::RCP<const Tpetra::MultiVector<ScalarT, LO, GO, Node> > & edge_nullspace = Teuchos::null) {
   using CoordScalarT = typename Teuchos::ScalarTraits<ScalarT>::coordinateType;
   using TpetraCoordMV = Tpetra::MultiVector<CoordScalarT, LO, GO, Node>;
   RefMaxwellXpetraInputs<Node> out;
@@ -54,6 +56,18 @@ RefMaxwellXpetraInputs<Node> buildRefMaxwellXpetraInputs(
   out.M1_wrap = wrapAsXpetraMatrix<Node>(M1);
   out.coords_xpetra = Teuchos::rcp(new Xpetra::TpetraMultiVector<CoordScalarT, LO, GO, Node>(
       Teuchos::rcp_const_cast<TpetraCoordMV>(nodal_coords)));
+  if (!edge_nullspace.is_null()) {
+    // MueLu zeroes the Dirichlet rows only of a nullspace it forms itself.
+    out.nullspace = Teuchos::rcp(new Xpetra::TpetraMultiVector<ScalarT, LO, GO, Node>(
+        Teuchos::rcp(new Tpetra::MultiVector<ScalarT, LO, GO, Node>(*edge_nullspace, Teuchos::Copy))));
+    Kokkos::View<bool*, typename Node::device_type::memory_space> BCrows, BCcols, BCdomain;
+    int BCedges = 0, BCnodes = 0;
+    bool allEdgesBnd = false, allNodesBnd = false;
+    MueLu::Maxwell_Utils<ScalarT, LO, GO, Node>::detectBoundaryConditionsSM(
+        out.SM_wrap, out.D0_wrap, /*rowSumTol=*/ -1.0,
+        BCrows, BCcols, BCdomain, BCedges, BCnodes, allEdgesBnd, allNodesBnd);
+    MueLu::Utilities<ScalarT, LO, GO, Node>::ZeroDirichletRows(out.nullspace, BCrows);
+  }
   return out;
 }
 
@@ -255,7 +269,8 @@ buildRefMaxwellPreconditioner(const typename BlockTypes<Node>::CrsMatrixRCP & J,
   matrix_RCP SM_for_setup = in.SM, M1_for_setup = in.M1;
 
   block_prec::detail::RefMaxwellXpetraInputs<Node> xpetraInputs = block_prec::detail::buildRefMaxwellXpetraInputs<Node>(
-    SM_for_setup, cntxt->refMaxwell.D0_matrix, M1_for_setup, cntxt->refMaxwell.nodal_coords);
+    SM_for_setup, cntxt->refMaxwell.D0_matrix, M1_for_setup, cntxt->refMaxwell.nodal_coords,
+    cntxt->refMaxwell.edge_nullspace);
   Teuchos::RCP<XpetraMatrix> SM_wrap = xpetraInputs.SM_wrap;
   Teuchos::RCP<XpetraMatrix> D0_wrap = xpetraInputs.D0_wrap;
   Teuchos::RCP<XpetraMatrix> M1_wrap = xpetraInputs.M1_wrap;
@@ -334,10 +349,9 @@ buildRefMaxwellPreconditioner(const typename BlockTypes<Node>::CrsMatrixRCP & J,
     M0inv_wrap = block_prec::detail::buildRefMaxwellM0inv<Node>(
       cntxt->refMaxwell.nodal_lumped_mass, cntxt->refMaxwell.schur_addon_beta);
   }
-  // Null nullspace: MueLu forms D0*coords itself, which is what we would pass.
   precCache = Teuchos::rcp(new RefMaxwellType(
       SM_wrap, D0_wrap, M1_wrap, M0inv_wrap, M1_wrap,
-      Teuchos::null, coords_xpetra,
+      xpetraInputs.nullspace, coords_xpetra,
       refmaxwellParams, true));
   splitState.addon_beta_built = haveAddon ? cntxt->refMaxwell.schur_addon_beta : 0.0;
   if (verbosity >= 10 && J->getComm()->getRank() == 0) {

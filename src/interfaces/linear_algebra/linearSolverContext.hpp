@@ -62,6 +62,7 @@ struct RefMaxwellData {
   Teuchos::RCP<LA_CrsMatrix> M1_matrix;
   Teuchos::RCP<LA_CoordMultiVector> nodal_coords;
   Teuchos::RCP<LA_MultiVector> nodal_lumped_mass;
+  Teuchos::RCP<LA_MultiVector> edge_nullspace;
 
   ScalarT schur_addon_beta = 0.0;
   bool schur_addon_beta_valid = false;

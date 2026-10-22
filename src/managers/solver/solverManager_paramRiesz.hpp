@@ -259,56 +259,17 @@ void SolverManager<Node>::buildParamGradient(matrix_RCP & D0,
   D0 = block_prec::detail::filterCopyCrs<Node>(*D0_aux, pmap, D0_aux->getColMap(), D0_aux->getDomainMap(),
                                                pmap, rows, block_prec::detail::KeepAllEntries());
 
-  // Node coordinates as any element sees them; each constant field from one element's own
-  // coordinates, which stay unwrapped across a periodic face where D0 times coords does not.
+  // Node coordinates as any element sees them.
   const Teuchos::RCP<const Map> nodal_map = D0->getDomainMap();
   std::map<GO, std::vector<double> > gid_to_coords;
-  nullspace = Teuchos::rcp(new LA_MultiVector(pmap, dimension));
-  std::vector<bool> done(n_rows, false);
-  {
-    auto ns = nullspace->getLocalViewHost(Tpetra::Access::ReadWrite);
-    auto lcl = D0->getLocalMatrixHost();
-    const Teuchos::RCP<const Map> d0_cols = D0->getColMap();
-    for (size_t b = 0; b < mesh->block_names.size(); ++b) {
-      const std::string & block_name = mesh->block_names[b];
-      const size_t num_elem = disc->my_elements[b].extent(0);
-      if (num_elem == 0) continue;
-      vector<size_t> elem_ids(num_elem);
-      for (size_t e = 0; e < num_elem; ++e) elem_ids[e] = disc->my_elements[b](e);
-      DRV elem_nodes = mesh->getMyNodes(b, elem_ids);
-      auto nodes_h = Kokkos::create_mirror_view(elem_nodes);
-      Kokkos::deep_copy(nodes_h, elem_nodes);
-      const size_t num_nodes = nodes_h.extent(1);
-      const std::vector<int> prm_off = params->paramDOF->getGIDFieldOffsets(block_name, 0);
-      for (size_t e = 0; e < num_elem; ++e) {
-        std::vector<GO> node_gids, prm_gids;
-        hgrad_dof->getElementGIDs(disc->my_elements[b](e), node_gids, block_name);
-        params->paramDOF->getElementGIDs(disc->my_elements[b](e), prm_gids, block_name);
-        for (size_t n = 0; n < node_gids.size() && n < num_nodes; ++n) {
-          if (gid_to_coords.find(node_gids[n]) == gid_to_coords.end()) {
-            std::vector<double> c(dimension);
-            for (int d = 0; d < dimension; ++d) c[d] = nodes_h(e, n, d);
-            gid_to_coords[node_gids[n]] = c;
-          }
-        }
-        for (size_t j = 0; j < prm_off.size(); ++j) {
-          const LO lid = pmap->getLocalElement(prm_gids[prm_off[j]]);
-          if (lid == Teuchos::OrdinalTraits<LO>::invalid() || done[lid]) continue;
-          const auto row = lcl.row(lid);
-          const size_t nmax = std::min(num_nodes, node_gids.size());
-          for (LO k = 0; k < row.length; ++k) {
-            const GO ngid = d0_cols->getGlobalElement(row.colidx(k));
-            const size_t n = std::find(node_gids.begin(), node_gids.begin() + nmax, ngid) - node_gids.begin();
-            if (n == nmax) continue;
-            for (int d = 0; d < dimension; ++d) ns(lid, d) += row.value(k) * nodes_h(e, n, d);
-          }
-          done[lid] = true;
-        }
-      }
-    }
-  }
-  GO missing = std::count(done.begin(), done.end(), false), global_missing = 0;
-  Teuchos::reduceAll<int, GO>(*(pmap->getComm()), Teuchos::REDUCE_SUM, 1, &missing, &global_missing);
+  GO global_missing = 0;
+  nullspace = this->buildEdgeNullspace(D0, hgrad_dof,
+    [&](const size_t b, const LO elem, std::vector<GO> & gids) {
+      std::vector<GO> prm_gids;
+      params->paramDOF->getElementGIDs(elem, prm_gids, mesh->block_names[b]);
+      gids.clear();
+      for (const int off : params->paramDOF->getGIDFieldOffsets(mesh->block_names[b], 0)) gids.push_back(prm_gids[off]);
+    }, global_missing, &gid_to_coords);
   TEUCHOS_TEST_FOR_EXCEPTION(global_missing > 0, std::runtime_error,
     "Riesz map: " << global_missing << " owned control edges touch no element this rank owns; "
     "the iterative RefMaxwell metric cannot build their nullspace. Use apply = exact, or repartition.");

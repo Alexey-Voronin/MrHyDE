@@ -25,4 +25,6 @@ mrhyde
 !sandbox/**/*.xml
 regression/**/mrhyde.results
 regression/**/*filtered
+regression/**/v.field.*.mm
+regression/**/objective.txt
 regression/TEST-package.xml
