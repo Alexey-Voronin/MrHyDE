@@ -259,7 +259,7 @@ void SolverManager<Node>::buildParamGradient(matrix_RCP & D0,
   D0 = block_prec::detail::filterCopyCrs<Node>(*D0_aux, pmap, D0_aux->getColMap(), D0_aux->getDomainMap(),
                                                pmap, rows, block_prec::detail::KeepAllEntries());
 
-  // Node coordinates as any element sees them.
+  // Node coordinates: each node's lowest-sum periodic image, the same on every rank.
   const Teuchos::RCP<const Map> nodal_map = D0->getDomainMap();
   std::map<GO, std::vector<double> > gid_to_coords;
   GO global_missing = 0;
@@ -276,12 +276,9 @@ void SolverManager<Node>::buildParamGradient(matrix_RCP & D0,
 
   coords = Teuchos::rcp(new CoordMV(nodal_map, dimension));
   {
-    auto c = coords->getLocalViewHost(Tpetra::Access::OverwriteAll);
     GO missing_nodes = 0;
     for (LO lid = 0; lid < static_cast<LO>(nodal_map->getLocalNumElements()); ++lid) {
-      auto it = gid_to_coords.find(nodal_map->getGlobalElement(lid));
-      if (it == gid_to_coords.end()) { ++missing_nodes; continue; }
-      for (int d = 0; d < dimension; ++d) c(lid, d) = it->second[d];
+      if (gid_to_coords.find(nodal_map->getGlobalElement(lid)) == gid_to_coords.end()) ++missing_nodes;
     }
     GO global_missing_nodes = 0;
     Teuchos::reduceAll<int, GO>(*(nodal_map->getComm()), Teuchos::REDUCE_SUM, 1, &missing_nodes, &global_missing_nodes);
@@ -289,4 +286,5 @@ void SolverManager<Node>::buildParamGradient(matrix_RCP & D0,
       "Riesz map: " << global_missing_nodes << " owned nodes have no coordinates from an "
       "owned element; the iterative RefMaxwell metric needs them. Use apply = exact, or repartition.");
   }
+  fillFromLowestImage<LO,GO,Node>(gid_to_coords, *coords);
 }
