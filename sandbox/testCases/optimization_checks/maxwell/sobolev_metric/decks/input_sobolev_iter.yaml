@@ -167,6 +167,7 @@ ANONYMOUS:
         #   Output Style: 1
         #   Output Frequency: 1
         strict: true
+        slabs per solve: 1
   Analysis:
     analysis type: ROL2
     read parameters from file: true

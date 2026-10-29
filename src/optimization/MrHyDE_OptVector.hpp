@@ -1181,12 +1181,16 @@ public:
     }
     // Riesz map: P primal to dual, P^-1 back.
     if ( have_mass ) {
+      std::vector<vector_RCP> src, dst;
       for (size_t i=0; i<field_vec.size() && !reuse; ++i) {
         if ( field_vec[i] != ROL::nullPtr ) {
-          vector_RCP dst = dual_field_vec[i]->getVector();
-          if ( isDual ) { paramRiesz->applyInverse(field_vec[i]->getVector(), dst); }
-          else          { paramRiesz->apply(field_vec[i]->getVector(), dst); }
+          src.push_back(field_vec[i]->getVector());
+          dst.push_back(dual_field_vec[i]->getVector());
         }
+      }
+      if ( isDual ) { paramRiesz->applyInverse(src, dst); }
+      else {
+        for (size_t s=0; s<src.size(); ++s) { paramRiesz->apply(src[s], dst[s]); }
       }
       if ( isDual && !reuse ) { this->rememberLastSolve(); }
     }

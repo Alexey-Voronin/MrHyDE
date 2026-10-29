@@ -43,6 +43,9 @@ ELSE()
   MESSAGE("   Trilinos_VERSION >= 14 detected, using new names for Tpetra::KokkosCompat objects")
   ADD_DEFINITIONS(-DMrHyDE_HAVE_TRILINOS14)
 ENDIF()
+IF(NOT ";${Trilinos_PACKAGE_LIST};" MATCHES ";Zoltan2(Core)?;")
+  MESSAGE(FATAL_ERROR "MrHyDE needs Trilinos with Zoltan2: configure Trilinos with -DTrilinos_ENABLE_Zoltan2:BOOL=ON")
+ENDIF()
 MESSAGE("End of Trilinos details\n")
 
 

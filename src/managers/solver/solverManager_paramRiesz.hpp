@@ -8,6 +8,11 @@
 
 #include <Ifpack2_Factory.hpp>
 #include <Teuchos_XMLParameterListHelpers.hpp>
+#include <Tpetra_ComputeGatherMap.hpp>
+#include <Tpetra_TieBreak.hpp>
+#include <Zoltan2_XpetraCrsMatrixAdapter.hpp>
+#include <Zoltan2_PartitioningProblem.hpp>
+#include <Zoltan2_PartitioningHelpers.hpp>
 
 namespace {
 
@@ -64,6 +69,55 @@ wrapParamCrs(const Teuchos::RCP<Tpetra::CrsMatrix<ScalarT,LO,GO,Node> > & A) {
   return Teuchos::rcp(new Xpetra::CrsMatrixWrap<ScalarT,LO,GO,Node>(xc));
 }
 
+// Control rows per rank when the deck sets no rank count.
+constexpr GO param_riesz_rows_per_rank = 2000;
+
+// Ranks to hold the control rows, from global values only so every rank agrees; 0 keeps the mesh layout.
+inline int paramRieszRanks(const int setting, const GO nrows, const int nranks) {
+  if (setting < 0 || nranks == 1 || nrows == 0) return 0;
+  const GO want = (setting > 0) ? GO(setting)
+                                : (nrows + param_riesz_rows_per_rank / 2) / param_riesz_rows_per_rank;
+  return static_cast<int>(std::min<GO>(std::min<GO>(nranks, nrows), std::max<GO>(1, want)));
+}
+
+// A GID listed by several ranks goes to the lowest of them.
+struct LowestRankTieBreak : public Tpetra::Details::TieBreak<LO,GO> {
+  std::size_t selectedIndex(GO, const std::vector<std::pair<int,LO> > & pid_lid) const override {
+    return static_cast<std::size_t>(std::min_element(pid_lid.begin(), pid_lid.end()) - pid_lid.begin());
+  }
+};
+
+// A's rows on to_new's target map, left globally indexed so fillComplete finds the column owners in the new domain map.
+template<class Node>
+Teuchos::RCP<Tpetra::CrsMatrix<ScalarT,LO,GO,Node> >
+importParamRows(const Tpetra::CrsMatrix<ScalarT,LO,GO,Node> & A, const Tpetra::Import<LO,GO,Node> & to_new) {
+  auto B = Teuchos::rcp(new Tpetra::CrsMatrix<ScalarT,LO,GO,Node>(to_new.getTargetMap(), A.getGlobalMaxNumRowEntries()));
+  B->doImport(A, to_new, Tpetra::INSERT);
+  return B;
+}
+
+// A's rows split into k parts by Zoltan's hypergraph partitioner on A's sparsity; part p goes to rank p.
+template<class Node>
+Teuchos::RCP<const Tpetra::Map<LO,GO,Node> >
+partitionRows(const Teuchos::RCP<const Tpetra::CrsMatrix<ScalarT,LO,GO,Node> > & A, const int k) {
+  using Adapter = Zoltan2::XpetraCrsMatrixAdapter<Tpetra::CrsMatrix<ScalarT,LO,GO,Node> >;
+  Adapter adapter(A);
+  Teuchos::ParameterList zlist;
+  zlist.set("algorithm", "phg");
+  zlist.set("num_global_parts", k);
+  Teuchos::ParameterList & zoltan = zlist.sublist("zoltan_parameters");
+  zoltan.set("DEBUG_LEVEL", "0");
+  zoltan.set("REMAP", "0");
+  Zoltan2::PartitioningProblem<Adapter> problem(&adapter, &zlist, A->getComm());
+  problem.solve();
+  Teuchos::ArrayRCP<GO> mine;
+  Zoltan2::getImportList(problem.getSolution(), &adapter, mine);
+  std::vector<GO> gids(mine.getRawPtr(), mine.getRawPtr() + mine.size());
+  std::sort(gids.begin(), gids.end());
+  return Teuchos::rcp(new Tpetra::Map<LO,GO,Node>(Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(),
+    Teuchos::ArrayView<const GO>(gids), A->getRowMap()->getIndexBase(), A->getComm()));
+}
+
 } // namespace
 
 // ========================================================================================
@@ -92,6 +146,29 @@ Teuchos::RCP<MrHyDE_ParamRiesz> SolverManager<Node>::buildIterativeParamRiesz(co
     Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(), Teuchos::ArrayView<const GO>(live_gids),
     pmap->getIndexBase(), pmap->getComm()));
   matrix_RCP P_live = restrictParamCrs<Node>(*paramMass, live_map, *assembled_diag, live_map);
+
+  // The control rows move to k ranks, cut along the couplings of P; k == 0 keeps the mesh layout.
+  const int k = paramRieszRanks(param_riesz.ranks, static_cast<GO>(live_map->getGlobalNumElements()),
+                                pmap->getComm()->getSize());
+  Teuchos::RCP<const Map> edge_map = live_map;
+  Teuchos::RCP<const Tpetra::Import<LO,GO,Node> > to_new;
+  if (k > 0) {
+    edge_map = (k == 1) ? Tpetra::Details::computeGatherMap(live_map, Teuchos::null) : partitionRows<Node>(P_live, k);
+    to_new = Teuchos::rcp(new Tpetra::Import<LO,GO,Node>(live_map, edge_map));
+    P_live = importParamRows<Node>(*P_live, *to_new);
+    P_live->fillComplete(edge_map, edge_map);
+  }
+  if (verbosity >= 5) {
+    const GO here = static_cast<GO>(edge_map->getLocalNumElements());
+    const GO holds = (here > 0) ? 1 : 0;
+    GO most = 0, holders = 0;
+    Teuchos::reduceAll<int, GO>(*(pmap->getComm()), Teuchos::REDUCE_MAX, 1, &here, &most);
+    Teuchos::reduceAll<int, GO>(*(pmap->getComm()), Teuchos::REDUCE_SUM, 1, &holds, &holders);
+    if (Comm->getRank() == 0) {
+      std::cout << "[RieszMap] control rows on " << holders << " of " << Comm->getSize()
+                << " ranks, at most " << most << " per rank" << std::endl;
+    }
+  }
 
   Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,Node> > prec;
   if (param_riesz.prec == "Jacobi") {
@@ -133,11 +210,32 @@ Teuchos::RCP<MrHyDE_ParamRiesz> SolverManager<Node>::buildIterativeParamRiesz(co
       Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(), Teuchos::ArrayView<const GO>(node_gids),
       nodal_map->getIndexBase(), nodal_map->getComm()));
     matrix_RCP D0_live = restrictParamCrs<Node>(*D0, live_map, live_nodes, live_node_map);
+    Teuchos::RCP<const Map> node_map = live_node_map;
+    if (k > 0) {
+      // Each control node goes to the lowest rank holding one of its edges.
+      D0_live = importParamRows<Node>(*D0_live, *to_new);
+      std::vector<GO> held;
+      {
+        typename LA_CrsMatrix::global_inds_host_view_type inds;
+        typename LA_CrsMatrix::values_host_view_type vals;
+        for (LO i = 0; i < static_cast<LO>(edge_map->getLocalNumElements()); ++i) {
+          D0_live->getGlobalRowView(edge_map->getGlobalElement(i), inds, vals);
+          held.insert(held.end(), inds.data(), inds.data() + inds.extent(0));
+        }
+      }
+      std::sort(held.begin(), held.end());
+      held.erase(std::unique(held.begin(), held.end()), held.end());
+      const Teuchos::RCP<const Map> held_map = Teuchos::rcp(new Map(
+        Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(), Teuchos::ArrayView<const GO>(held),
+        live_node_map->getIndexBase(), live_node_map->getComm()));
+      node_map = Tpetra::createOneToOne<LO,GO,Node>(held_map, LowestRankTieBreak());
+      D0_live->fillComplete(node_map, edge_map);
+    }
 
-    Teuchos::RCP<CoordMV> coords_live = Teuchos::rcp(new CoordMV(live_node_map, coords->getNumVectors()));
-    coords_live->doImport(*coords, Tpetra::Import<LO,GO,Node>(nodal_map, live_node_map), Tpetra::INSERT);
-    vector_RCP ns_live = Teuchos::rcp(new LA_MultiVector(live_map, nullspace->getNumVectors()));
-    ns_live->doImport(*nullspace, Tpetra::Import<LO,GO,Node>(pmap, live_map), Tpetra::INSERT);
+    Teuchos::RCP<CoordMV> coords_live = Teuchos::rcp(new CoordMV(node_map, coords->getNumVectors()));
+    coords_live->doImport(*coords, Tpetra::Import<LO,GO,Node>(nodal_map, node_map), Tpetra::INSERT);
+    vector_RCP ns_live = Teuchos::rcp(new LA_MultiVector(edge_map, nullspace->getNumVectors()));
+    ns_live->doImport(*nullspace, Tpetra::Import<LO,GO,Node>(pmap, edge_map), Tpetra::INSERT);
 
     // P vanishes on gradients except for its mass term, so P serves as RefMaxwell's mass matrices.
     Teuchos::RCP<Teuchos::ParameterList> mlist = Teuchos::getParametersFromXmlFile(param_riesz.xml);
@@ -155,10 +253,8 @@ Teuchos::RCP<MrHyDE_ParamRiesz> SolverManager<Node>::buildIterativeParamRiesz(co
       Teuchos::rcp_static_cast<Xpetra::Operator<ScalarT,LO,GO,Node> >(refmaxwell)));
   }
 
-  const std::string krylov = (param_riesz.krylov == "GMRES") ? "Pseudo Block GMRES" : "Pseudo Block CG";
   debugger->print("**** Finished SolverManager::buildIterativeParamRiesz()");
-  return Teuchos::rcp(new MrHyDE_ParamRiesz(paramMass, P_live, diagParamMass, prec, krylov, param_riesz.belos,
-                                            verbosity, param_riesz.strict));
+  return Teuchos::rcp(new MrHyDE_ParamRiesz(paramMass, P_live, diagParamMass, prec, param_riesz, verbosity));
 }
 
 // ========================================================================================

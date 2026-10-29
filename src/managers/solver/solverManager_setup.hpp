@@ -1208,6 +1208,14 @@ vector<bool> SolverManager<Node>::resolveParamRieszMetric() {
                                 params->discretized_param_basis_types[params->discretized_param_usebasis[0]].substr(0,5) != "HCURL"),
                                std::runtime_error,
                                "Riesz map: RefMaxwell needs exactly one HCURL discretized parameter");
+    TEUCHOS_TEST_FOR_EXCEPTION(param_riesz.slabs_per_solve < 0, std::runtime_error,
+                               "Riesz map: slabs per solve must be 0 (automatic) or positive");
+    TEUCHOS_TEST_FOR_EXCEPTION(param_riesz.ranks < -1, std::runtime_error,
+                               "Riesz map: ranks must be -1 (mesh layout), 0 (automatic) or positive");
+    if (param_riesz.krylov == "GMRES" && param_riesz.slabs_per_solve > 1 && verbosity >= 5 && Comm->getRank() == 0) {
+      std::cout << "WARNING: Riesz map: slabs per solve is ignored with GMRES, which solves one slab at a time"
+                << std::endl;
+    }
   }
   
   vector<bool> include_block(blocknames.size(), false);
