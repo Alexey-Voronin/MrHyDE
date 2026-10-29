@@ -17,6 +17,12 @@ ITER = re.compile(r"^Iter\s+(\d+),")
 VALUE = re.compile(r"([0-9.eE+-]+) \(")
 UNCONVERGED = "WARNING: Belos linear solve did not converge"
 TIME_STEP = "Beginning Time Step"
+CALLS = re.compile(r"[0-9.eE+-]+ \(([0-9.eE+]+)\)")
+# Belos's final summary: "Number of Iterations = 24 < 500" ("==" at the limit).
+SOLVE_ITERS = re.compile(r"Number of Iterations = (\d+) [<=>]+ (\d+)")
+FLOAT = r"[-+]?\d\.\d+e[-+]\d+"
+TR_KEYS = ("iter", "value", "gnorm", "snorm", "delta", "nfval", "ngrad", "tr_flag", "iterCG", "flagCG")
+TR_ROW = re.compile(r"^\s*(\d+)" + (r"\s+(%s)" % FLOAT) * 4 + r"\s+(\d+)" * 5 + r"\s*$")
 
 ITER_TOL_FLOOR = 2
 ITER_TOL_FRAC = 0.15
@@ -75,6 +81,37 @@ def timings(lines):
             key = next(k for k, label in TIMERS.items() if label == parts[0])
             out[key] = float(v[2] if len(v) >= 3 else v[0])
     return out
+
+
+def timer_calls(lines, label):
+    """Calls to the TimeMonitor timer 'label' (first column), or None."""
+    for line in lines:
+        parts = re.split(r"\s{2,}", line.rstrip(), maxsplit=1)
+        if len(parts) == 2 and parts[0] == label:
+            c = CALLS.findall(parts[1])
+            return int(float(c[0])) if c else None
+    return None
+
+
+def solve_iterations(lines, limit):
+    """Iterations of every Belos solve whose final summary (verbosity 8 bit) shows the limit 'limit'."""
+    out = []
+    for line in lines:
+        m = SOLVE_ITERS.search(line)
+        if m and int(m.group(2)) == limit:
+            out.append(int(m.group(1)))
+    return out
+
+
+def trust_region_rows(lines):
+    """ROL trust-region table rows after iteration 0, as dicts keyed by TR_KEYS."""
+    rows = []
+    for line in lines:
+        m = TR_ROW.match(line)
+        if m:
+            g = m.groups()
+            rows.append(dict(zip(TR_KEYS, [int(g[0])] + [float(v) for v in g[1:5]] + [int(v) for v in g[5:]])))
+    return rows
 
 
 def stats(log):
