@@ -49,6 +49,7 @@ cmake \
   -D Trilinos_ENABLE_Amesos2:BOOL=ON \
   -D Trilinos_ENABLE_AztecOO:BOOL=ON \
   -D Trilinos_ENABLE_Belos:BOOL=ON \
+  -D Trilinos_ENABLE_Zoltan2:BOOL=ON \
   -D Trilinos_ENABLE_Compadre:BOOL=ON \
   -D Trilinos_ENABLE_FEI:BOOL=ON \
   -D Trilinos_ENABLE_Ifpack:BOOL=ON \

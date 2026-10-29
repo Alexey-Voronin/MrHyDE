@@ -37,6 +37,7 @@ cmake \
   -D Trilinos_ENABLE_ALL_OPTIONAL_PACKAGES:BOOL=OFF \
   -D Trilinos_ENABLE_Amesos2:BOOL=ON \
   -D Trilinos_ENABLE_Belos:BOOL=ON \
+  -D Trilinos_ENABLE_Zoltan2:BOOL=ON \
   -D Trilinos_ENABLE_Compadre:BOOL=ON \
   -D Trilinos_ENABLE_Intrepid2:BOOL=ON \
   -D Trilinos_ENABLE_MueLu:BOOL=ON \

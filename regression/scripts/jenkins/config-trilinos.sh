@@ -63,6 +63,7 @@ ${CMAKE} \
     -D Trilinos_ENABLE_Stratimikos:BOOL=ON \
     -D Trilinos_ENABLE_ML:BOOL=ON \
     -D Trilinos_ENABLE_Zoltan:BOOL=ON \
+    -D Trilinos_ENABLE_Zoltan2:BOOL=ON \
     -D Trilinos_ENABLE_FEI:BOOL=ON \
     -D Trilinos_ENABLE_Amesos:BOOL=ON \
     -D Trilinos_ENABLE_Amesos2:BOOL=ON \

@@ -47,6 +47,7 @@ cmake \
 -D Trilinos_ENABLE_ALL_PACKAGES:BOOL=OFF \
 -D Trilinos_ENABLE_ALL_OPTIONAL_PACKAGES:BOOL=OFF \
 -D Trilinos_ENABLE_Belos:BOOL=ON \
+-D Trilinos_ENABLE_Zoltan2:BOOL=ON \
 -D Trilinos_ENABLE_ROL:BOOL=ON \
 -D Trilinos_ENABLE_PanzerCore=ON \
 -D Trilinos_ENABLE_PanzerDofMgr=ON \
