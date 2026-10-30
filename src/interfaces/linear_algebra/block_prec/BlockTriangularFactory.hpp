@@ -47,7 +47,7 @@ public:
     if (s != zero) {
       std::vector<Teko::LinearOp> invDiag;
       strategy->getInvD(blocked, state, invDiag);
-      return this->exactCurlInverse(s, invDiag);
+      return this->exactCurlInverse(s, invDiag, blocked);
     }
     return detail::tekoBuildInverse(
       Teuchos::rcp(new Teko::GaussSeidelPreconditionerFactory(triType, strategy)), blocked);
@@ -56,14 +56,26 @@ public:
 private:
   // [I, -s C; 0, I] diag(P_0^-1, P_1^-1): back-substitutes with J00^-1 J01 = s C exactly.
   Teko::LinearOp exactCurlInverse(const ScalarT s,
-                                  const std::vector<Teko::LinearOp> & invDiag) const {
+                                  const std::vector<Teko::LinearOp> & invDiag,
+                                  const Teko::BlockedLinearOp & blocked) const {
     const Teko::LinearOp U = Thyra::block2x2<ScalarT>(
       Thyra::identity<ScalarT>(invDiag[0]->range()),
       Thyra::scale<ScalarT>(-s, tpetraToThyraConst<Node>(cntxt_->block.curl)),
       Teuchos::null, Thyra::identity<ScalarT>(invDiag[1]->range()));
     const Teko::LinearOp D = Thyra::block2x2<ScalarT>(invDiag[0], Teuchos::null,
                                                       Teuchos::null, invDiag[1]);
-    return Thyra::multiply<ScalarT>(U, D);
+    if (!cntxt_->schur.exact_curl_lower) {
+      return Thyra::multiply<ScalarT>(U, D);
+    }
+    // Block elimination with one P_0 apply: y = P_0^-1 r_0, e = P_1^-1 (r_1 - J10 y), x_0 = y - s C e.
+    const Teko::LinearOp I0 = Thyra::identity<ScalarT>(invDiag[0]->range());
+    const Teko::LinearOp I1 = Thyra::identity<ScalarT>(invDiag[1]->range());
+    const Teko::LinearOp D0 = Thyra::block2x2<ScalarT>(invDiag[0], Teuchos::null, Teuchos::null, I1);
+    const Teko::LinearOp L = Thyra::block2x2<ScalarT>(
+      I0, Teuchos::null,
+      Thyra::scale<ScalarT>(-Teuchos::ScalarTraits<ScalarT>::one(), Teko::getBlock(1, 0, blocked)), I1);
+    const Teko::LinearOp D1 = Thyra::block2x2<ScalarT>(I0, Teuchos::null, Teuchos::null, invDiag[1]);
+    return Thyra::multiply<ScalarT>(U, D1, Thyra::multiply<ScalarT>(L, D0));
   }
 
   bool useUpperTriangular() const {

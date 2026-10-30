@@ -46,6 +46,7 @@ struct SchurConfig {
   bool diagonal_prec_use_lumped;    // 'diag use lumped diagonal', the Diagonal split inverse
   ScalarT mass_scale;               // multiplies M_p in the 'mass' Schur variant
   bool split_residual_scaling[2];   // 'split residual scaling' per sweep kind (block_prec/SplitScaling.hpp)
+  bool exact_curl_lower;            // 'exact-curl lower factor': compose the full block LU, not only the upper factor
 };
 
 // Auxiliary operators for the H(curl) preconditioners, built once per set by
@@ -195,13 +196,38 @@ public:
     jacobian_rebuilt_this_step = true;
   }
   
-  // With 'reuse Jacobian across sweeps', restore the Jacobian kept for this sweep's kind.
+  // With 'reuse Jacobian across sweeps', restore the Jacobian and preconditioner kept for this sweep's kind.
   void setSweepKind(const bool adjoint) {
     sweep_kind = adjoint ? 1 : 0;
-    if (reuse_across_sweeps && use_direct && !kept_matrix[sweep_kind].is_null()) {
+    if (reuse_across_sweeps && !kept_matrix[sweep_kind].is_null()) {
       matrix = kept_matrix[sweep_kind];
       have_matrix = true;
+      prec = kept_prec[sweep_kind];
+      prec_dd = kept_prec_dd[sweep_kind];
+      prec_block = kept_prec_block[sweep_kind];
+      have_preconditioner = !prec.is_null() || !prec_dd.is_null() || !prec_block.is_null();
     }
+  }
+
+  // Iterative solves keep the preconditioner built against this kind's Jacobian.
+  void keepPreconditioner() {
+    kept_prec[sweep_kind] = prec;
+    kept_prec_dd[sweep_kind] = prec_dd;
+    kept_prec_block[sweep_kind] = prec_block;
+  }
+
+  // Records the operator scale when the kept Jacobian is rebuilt and checks it when reused.
+  void trackKeptScale(const bool rebuilt) {
+    const ScalarT scale = stage_alpha_u * operator_dt;
+    if (rebuilt) {
+      kept_scale[sweep_kind] = scale;
+      return;
+    }
+    TEUCHOS_TEST_FOR_EXCEPTION(scale != kept_scale[sweep_kind], std::runtime_error,
+      "reuse Jacobian across sweeps: the kept factorization was built at (stage weight * dt"
+      " / leading BDF weight) = " << kept_scale[sweep_kind] << " but this solve needs " << scale
+      << "; it is valid only for a constant operator (linear, single-stage, fixed dt, one BDF"
+      " order throughout).");
   }
 
   // Passes 'Amesos debug level' to a newly created Amesos2 solver.
@@ -225,7 +251,7 @@ public:
   bool right_preconditioner;
   string preconditioner_reuse_type;   // none, update, full
   bool reuse_matrix;
-  bool reuse_across_sweeps = false;   // freeze fwd/adjoint factorizations; needs 'reuse Jacobian', constant operator
+  bool reuse_across_sweeps = false;   // freeze fwd/adjoint Jacobians with their factorizations or preconditioners; needs 'reuse Jacobian', constant operator
   ScalarT stage_alpha_u = 1.0;        // DIRK spatial-term scaling a_ss/b_s
   ScalarT operator_dt = 0.0;          // dt divided by the leading BDF weight, for the reuse-across-sweeps scale check
 
@@ -276,6 +302,9 @@ public:
   int sweep_kind = 0;
   matrix_RCP kept_matrix[2];
   Teuchos::RCP<Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> > kept_amesos[2];
+  Teuchos::RCP<MueLu::TpetraOperator<ScalarT, LO, GO, Node> > kept_prec[2];
+  Teuchos::RCP<Ifpack2::Preconditioner<ScalarT, LO, GO, Node> > kept_prec_dd[2];
+  Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,Node> > kept_prec_block[2];
   // Operator scale (stage_alpha_u*operator_dt) each kept slot was factored at; a change means the
   // frozen factorization is stale (variable dt, a multi-stage method or a BDF order switch).
   ScalarT kept_scale[2] = {0.0, 0.0};
@@ -593,6 +622,7 @@ private:
     schur.triangle = "auto";
     schur.diagonal_prec_use_lumped = false;
     schur.split_residual_scaling[0] = schur.split_residual_scaling[1] = false;
+    schur.exact_curl_lower = false;
   }
 
   void parsePreconditionerSublist() {
@@ -632,6 +662,9 @@ private:
     }
     if (scheme_sublist.isParameter("triangle")) {
       schur.triangle = block_prec::canonicalSchurTriangle(scheme_sublist.get<string>("triangle"));
+    }
+    if (scheme_sublist.isParameter("exact-curl lower factor")) {
+      schur.exact_curl_lower = scheme_sublist.get<bool>("exact-curl lower factor");
     }
     schur.damping = block_prec::scalarParam(scheme_sublist, "damping", schur.damping);
     if (scheme_sublist.isParameter("split residual scaling")) {

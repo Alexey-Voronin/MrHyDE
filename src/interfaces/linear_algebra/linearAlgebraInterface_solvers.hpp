@@ -23,7 +23,6 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
     // A kept Jacobian is factored when it is assembled; every other solve only back-solves.
     const int slot = cntxt->sweep_kind;
     Teuchos::RCP<Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> > & kept = cntxt->kept_amesos[slot];
-    const ScalarT scale = cntxt->stage_alpha_u * cntxt->operator_dt;
     const bool refactor = kept.is_null() || cntxt->jacobian_rebuilt_this_step;
     if (kept.is_null()) {
       kept = Amesos2::create<LA_CrsMatrix,LA_MultiVector>(cntxt->amesos_type, J, r, soln);
@@ -35,14 +34,7 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
       kept->setA(J, Amesos2::SYMBFACT);
       kept->numericFactorization();
     }
-    else {
-      TEUCHOS_TEST_FOR_EXCEPTION(scale != cntxt->kept_scale[slot], std::runtime_error,
-        "reuse Jacobian across sweeps: the kept factorization was built at (stage weight * dt"
-        " / leading BDF weight) = " << cntxt->kept_scale[slot] << " but this solve needs " << scale
-        << "; it is valid only for a constant operator (linear, single-stage, fixed dt, one BDF"
-        " order throughout).");
-    }
-    if (refactor) { cntxt->kept_scale[slot] = scale; }
+    cntxt->trackKeptScale(refactor);
     kept->setX(soln);
     kept->setB(r);
     kept->solve();
@@ -60,6 +52,11 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
     cntxt->amesos_solver->numericFactorization().solve();
   }
   else {
+    // Only state contexts keep a Jacobian per sweep kind; the L2 and parameter contexts read the flag too.
+    const bool keep = cntxt->reuse_across_sweeps && !cntxt->kept_matrix[cntxt->sweep_kind].is_null();
+    if (keep) {
+      cntxt->trackKeptScale(cntxt->jacobian_rebuilt_this_step);
+    }
     // GCRODR and RCG carry state (recycled subspace, conjugate vectors) that
     // must survive across solves; cache the SolverManager + LinearProblem.
     Teuchos::RCP<LA_LinearProblem> Problem;
@@ -79,6 +76,9 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
     }
     if (cntxt->use_preconditioner) {
       Teuchos::RCP<LA_Operator> preconditioner = this->buildOrUpdatePreconditioner(cntxt, J);
+      if (keep) {
+        cntxt->keepPreconditioner();
+      }
       preconditioner = block_prec::maybeScaleSplits<Node>(cntxt, *Problem, preconditioner);
       this->attachPreconditionerToProblem(cntxt, Problem, preconditioner);
     }

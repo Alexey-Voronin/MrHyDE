@@ -103,6 +103,65 @@ for name in ('on', 'mass'):
   if not ok:
     status += 1
 
+# Same pair with iterative solves. Ifpack2 Jacobi draws no random start vector, so a kept
+# preconditioner and a rebuilt one are the same operator and the two runs must agree.
+sys.path.append("../../../scripts/data_processing")
+from parse_log import timer_calls
+
+for name in ('iter_off', 'iter_on'):
+  log = 'mrhyde_%s.log' % name
+  status += its.call('mpiexec -n 3 ../../mrhyde input_%s.yaml >& %s' % (name, log))
+  its.clean_log(log)   # advisory IOSS filter; its sed call returns nonzero on BSD
+  logs[name] = open(log, errors='replace').read()
+
+a = _exact_numbers(logs['iter_off'])
+b = _exact_numbers(logs['iter_on'])
+if len(a) != 32 or len(b) != len(a):
+  print('FAIL  iterative exact-path numbers: read %d and %d of 32' % (len(a), len(b)))
+  status += 1
+else:
+  worst = max(abs(x - y) / max(abs(x), 1.0e-300) for x, y in zip(a, b))
+  ok = worst <= 1.0e-12
+  print('%s  32 exact-path numbers, iter_on against iter_off: max rel diff %.3e <= 1e-12'
+        % ('pass' if ok else 'FAIL', worst))
+  status += 0 if ok else 1
+
+LABELS = ('Ifpack2::Relaxation::compute', 'Ifpack2::Relaxation::apply',
+          'MrHyDE::SolverManager::forward()', 'MrHyDE::SolverManager::adjoint()')
+calls = {}
+for name in ('iter_off', 'iter_on'):
+  lines = logs[name].splitlines()
+  calls[name] = [timer_calls(lines, label) for label in LABELS]
+if None in calls['iter_off'] + calls['iter_on']:
+  print('FAIL  could not read %s from both iterative logs' % ', '.join(LABELS))
+  status += 1
+else:
+  build_off, apply_off, fwd_off, adj_off = calls['iter_off']
+  build_on, apply_on, fwd_on, adj_on = calls['iter_on']
+  ok = (fwd_on, adj_on) == (fwd_off, adj_off)
+  print('%s  forward/adjoint sweeps: %d/%d with the flag, %d/%d without'
+        % ('pass' if ok else 'FAIL', fwd_on, adj_on, fwd_off, adj_off))
+  status += 0 if ok else 1
+  # One Jacobi setup per kept slot (J, J^T) with the flag; one per sweep without it.
+  ok = 1 <= build_on <= 2 < build_off
+  print('%s  Jacobi setups: %d with the flag (at most one per kept slot), %d without'
+        % ('pass' if ok else 'FAIL', build_on, build_off))
+  status += 0 if ok else 1
+  # Teuchos prints call counts above 9999 to four significant digits.
+  ok = abs(apply_on - apply_off) <= 1.0e-3 * apply_off
+  print('%s  Jacobi applies: %d with the flag, %d without'
+        % ('pass' if ok else 'FAIL', apply_on, apply_off))
+  status += 0 if ok else 1
+
+# A BDF order switch changes the operator, so the kept Jacobian must be refused, not reused.
+its.call('mpiexec -n 3 ../../mrhyde input_iter_bdf2.yaml >& mrhyde_iter_bdf2.log', ignore_status=True)
+status += check_predicates('mrhyde_iter_bdf2.log',
+                           [('stale kept Jacobian refused', pred_contains('reuse Jacobian across sweeps:'))],
+                           verbose=True)
+
+if its.opts.clean and not status:
+  status += its.call('rm -f mrhyde_iter_off.log mrhyde_iter_on.log mrhyde_iter_bdf2.log')
+
 if its.opts.clean and not status:
   status += its.call('rm -f mrhyde_off.log mrhyde_on.log mrhyde_mass.log')
 
