@@ -10,10 +10,8 @@ from parse_log import timer_calls
 # ==============================================================================
 # Parsing input
 
-desc = ''' The exact-curl Schur complement is exact, so one block-LU pass solves each
-E-B system: 'exact-curl lower factor' with inner CG on both splits inside flexible
-Block GMRES. The trust-region step must match direct state solves, and the outer
-GMRES must need about one iteration per solve. '''
+desc = ''' One block-LU pass per E-B solve ('exact-curl lower factor', inner CG on both splits,
+flexible Block GMRES) must take the direct solver's trust-region step in one outer iteration. '''
 
 its = mrhyde_test_support(desc)
 
@@ -31,8 +29,7 @@ status = 0
 if its.opts.preprocess:
   status += its.call('echo "  No preprocessing, yet."')
 
-# Random starting control, one file per time slab: a constant control lies in the
-# misfit's kernel and would leave the adjoint untested.
+# Random control per time slab: a constant one lies in the misfit's kernel and skips the adjoint.
 NSP, NSLABS, SEED = 224, 8, 11
 rng = random.Random(SEED)
 for s in range(NSLABS):
@@ -96,8 +93,7 @@ else:
   if not ok:
     status += 1
 
-# The inner solves are CG and the Riesz map is factored, so every ICGS orthogonalization
-# belongs to the outer GMRES: one to normalize each solve's residual, one per iteration.
+# Inner solves are CG and the Riesz map is factored, so ICGS calls = outer solves + outer iterations.
 lines = logs['lu'].splitlines()
 ortho = timer_calls(lines, 'Belos: ICGS[2]: Orthogonalization')
 solves = timer_calls(lines, 'MrHyDE::LinearAlgebraInterface::linearSolver*()')

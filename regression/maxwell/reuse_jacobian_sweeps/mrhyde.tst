@@ -103,8 +103,7 @@ for name in ('on', 'mass'):
   if not ok:
     status += 1
 
-# Same pair with iterative solves. Ifpack2 Jacobi draws no random start vector, so a kept
-# preconditioner and a rebuilt one are the same operator and the two runs must agree.
+# Same pair, iterative: Jacobi draws no random start vector, so kept and rebuilt preconditioners agree.
 sys.path.append("../../../scripts/data_processing")
 from parse_log import timer_calls
 

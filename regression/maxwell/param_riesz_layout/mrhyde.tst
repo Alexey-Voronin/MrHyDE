@@ -10,12 +10,9 @@ from parse_log import solve_iterations, trust_region_rows
 # ==============================================================================
 # Parsing input
 
-desc = ''' Moves the Riesz map's control rows to other ranks. The transient Maxwell
-E-B control case of param_riesz_curlcurl takes one trust-region step with the
-iterative Riesz map three times: on the mesh layout (ranks: -1), on the default
-layout, which spreads the control rows over all three ranks, and gathered on one
-rank (ranks: 1). The three runs must take the same step, and the moved rows must
-not cost the Riesz CG more iterations than the mesh layout. '''
+desc = ''' The Riesz map's control rows on the mesh layout (ranks: -1), spread over every
+rank (the default) and gathered on one (ranks: 1) must give the same trust-region
+step, and moving them must not raise the Riesz CG count. '''
 
 its = mrhyde_test_support(desc)
 
@@ -51,35 +48,19 @@ if None in holders.values() or [] in steps.values() or [] in cg.values():
   print('FAIL  could not read the [RieszMap] layout line, iteration 1 and the Riesz CG counts from every log')
   status += 1
 else:
-  print('      mesh layout: control rows on %d of 3 ranks, Riesz CG %d to %d per solve'
-        % (holders['mesh'], min(cg['mesh']), max(cg['mesh'])))
-  # The default spreads the control rows over every rank; ranks: 1 gathers them on one.
+  s = steps['mesh'][0]
   for name, want in [('auto', 3), ('one', 1)]:
-    ok = int(holders[name]) == want
-    print('%s  %s: control rows on %d of 3 ranks, expected %d'
-          % ('pass' if ok else 'FAIL', name, holders[name], want))
-    status += 0 if ok else 1
-
-  for name in ['auto', 'one']:
-    # A coordinate or nullspace entry moved to the wrong row weakens RefMaxwell and shows up here.
-    ok = len(cg[name]) == len(cg['mesh'])
-    over = max(x - y for x, y in zip(cg[name], cg['mesh'])) if ok else -1
-    ok = ok and over <= CG_WINDOW
-    print('%s  %s Riesz CG: %d solves, %d to %d per solve, at most %d over the mesh layout (window %d)'
-          % ('pass' if ok else 'FAIL', name, len(cg[name]), min(cg[name]), max(cg[name]), over, CG_WINDOW))
-    status += 0 if ok else 1
-
-    s, r = steps['mesh'][0], steps[name][0]
-    ok = s['iterCG'] == r['iterCG']
-    print('%s  %s truncated-CG count: %d, mesh layout %d' % ('pass' if ok else 'FAIL', name, r['iterCG'], s['iterCG']))
-    status += 0 if ok else 1
+    r = steps[name][0]
+    # A coordinate or nullspace entry moved to the wrong row weakens RefMaxwell and raises the CG count.
+    over = max(x - y for x, y in zip(cg[name], cg['mesh'])) if len(cg[name]) == len(cg['mesh']) else None
     # ROL prints seven digits, so the window is 1e-6 relative.
-    for label in ['value', 'gnorm', 'snorm']:
-      x, y = s[label], r[label]
-      rel = abs(x - y) / abs(x) if x != 0.0 else abs(y)
-      ok = rel < 1.0e-6
-      print('%s  %s iteration 1 %s: %.6e, mesh layout %.6e, relative difference %.1e < 1e-6'
-            % ('pass' if ok else 'FAIL', name, label, y, x, rel))
+    rel = max(abs(s[k] - r[k]) / abs(s[k]) if s[k] != 0.0 else abs(r[k]) for k in ('value', 'gnorm', 'snorm'))
+    for ok, what in [(int(holders[name]) == want, 'control rows on %d of 3 ranks, expected %d' % (holders[name], want)),
+                     (over is not None and over <= CG_WINDOW,
+                      'Riesz CG at most %s over the mesh layout (window %d)' % (over, CG_WINDOW)),
+                     (r['iterCG'] == s['iterCG'], 'truncated CG %d iterations, mesh layout %d' % (r['iterCG'], s['iterCG'])),
+                     (rel < 1.0e-6, 'iteration 1 value, gnorm and snorm within %.1e of the mesh layout (< 1e-6)' % rel)]:
+      print('%s  %s: %s' % ('pass' if ok else 'FAIL', name, what))
       status += 0 if ok else 1
 
 if its.opts.clean and not status:

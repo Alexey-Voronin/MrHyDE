@@ -180,6 +180,7 @@ ANONYMOUS:
     parameter recovery file: v
     ROL2:
       General:
+        FD Check Seed: 1
         Output Level: 2
         Do grad+hessvec check: true
         # Do vector check: true        # prints reflexivity and apply-and-dual consistency
