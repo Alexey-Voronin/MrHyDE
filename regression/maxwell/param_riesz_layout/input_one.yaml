@@ -199,7 +199,7 @@ ANONYMOUS:
         xml param file: refmaxwell_metric.xml
         tolerance: 1.0e-10
         strict: true
-        ranks: 3
+        ranks: 1
         Belos Settings:
           Verbosity: 9
   Analysis:

@@ -13,9 +13,9 @@ from parse_log import solve_iterations, trust_region_rows
 desc = ''' Moves the Riesz map's control rows to other ranks. The transient Maxwell
 E-B control case of param_riesz_curlcurl takes one trust-region step with the
 iterative Riesz map three times: on the mesh layout (ranks: -1), on the default
-layout, which puts this small control block on one rank, and on all three ranks
-(ranks: 3). The three runs must take the same step, and the moved rows must not
-cost the Riesz CG more iterations than the mesh layout. '''
+layout, which spreads the control rows over all three ranks, and gathered on one
+rank (ranks: 1). The three runs must take the same step, and the moved rows must
+not cost the Riesz CG more iterations than the mesh layout. '''
 
 its = mrhyde_test_support(desc)
 
@@ -33,7 +33,7 @@ status = 0
 if its.opts.preprocess:
   status += its.call('echo "  No preprocessing, yet."')
 
-DECKS = ['mesh', 'auto', 'three']
+DECKS = ['mesh', 'auto', 'one']
 RIESZ_LIMIT = 500   # the Riesz CG's iteration limit; no other solve in these runs has it
 CG_WINDOW = 3
 logs = {}
@@ -53,14 +53,14 @@ if None in holders.values() or [] in steps.values() or [] in cg.values():
 else:
   print('      mesh layout: control rows on %d of 3 ranks, Riesz CG %d to %d per solve'
         % (holders['mesh'], min(cg['mesh']), max(cg['mesh'])))
-  # The default gives this small control block one rank; ranks: 3 spreads it over all three.
-  for name, want in [('auto', 1), ('three', 3)]:
+  # The default spreads the control rows over every rank; ranks: 1 gathers them on one.
+  for name, want in [('auto', 3), ('one', 1)]:
     ok = int(holders[name]) == want
     print('%s  %s: control rows on %d of 3 ranks, expected %d'
           % ('pass' if ok else 'FAIL', name, holders[name], want))
     status += 0 if ok else 1
 
-  for name in ['auto', 'three']:
+  for name in ['auto', 'one']:
     # A coordinate or nullspace entry moved to the wrong row weakens RefMaxwell and shows up here.
     ok = len(cg[name]) == len(cg['mesh'])
     over = max(x - y for x, y in zip(cg[name], cg['mesh'])) if ok else -1
@@ -83,7 +83,7 @@ else:
       status += 0 if ok else 1
 
 if its.opts.clean and not status:
-  status += its.call('rm -f mrhyde_mesh.log mrhyde_auto.log mrhyde_three.log')
+  status += its.call('rm -f mrhyde_mesh.log mrhyde_auto.log mrhyde_one.log')
 
 # ==============================================================================
 if status == 0: print('Success.')

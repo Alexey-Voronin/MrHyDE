@@ -69,15 +69,11 @@ wrapParamCrs(const Teuchos::RCP<Tpetra::CrsMatrix<ScalarT,LO,GO,Node> > & A) {
   return Teuchos::rcp(new Xpetra::CrsMatrixWrap<ScalarT,LO,GO,Node>(xc));
 }
 
-// Control rows per rank when the deck sets no rank count.
-constexpr GO param_riesz_rows_per_rank = 2000;
-
 // Ranks to hold the control rows, from global values only so every rank agrees; 0 keeps the mesh layout.
 inline int paramRieszRanks(const int setting, const GO nrows, const int nranks) {
   if (setting < 0 || nranks == 1 || nrows == 0) return 0;
-  const GO want = (setting > 0) ? GO(setting)
-                                : (nrows + param_riesz_rows_per_rank / 2) / param_riesz_rows_per_rank;
-  return static_cast<int>(std::min<GO>(std::min<GO>(nranks, nrows), std::max<GO>(1, want)));
+  const GO want = (setting > 0) ? GO(setting) : GO(nranks);
+  return static_cast<int>(std::min<GO>(std::min<GO>(nranks, nrows), want));
 }
 
 // A GID listed by several ranks goes to the lowest of them.

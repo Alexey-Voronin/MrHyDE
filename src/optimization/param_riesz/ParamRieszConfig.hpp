@@ -25,7 +25,7 @@ namespace MrHyDE {
     std::string prec = "RefMaxwell";  // RefMaxwell or Jacobi for apply iterative
     std::string xml;                  // MueLu list for RefMaxwell
     int slabs_per_solve = 0;          // iterative apply: most time slabs per Krylov solve; 0 lets MrHyDE_ParamRiesz choose
-    int ranks = 0;                    // iterative apply: ranks holding the control rows; 0 lets MrHyDE choose, -1 keeps the mesh layout
+    int ranks = 0;                    // iterative apply: ranks holding the control rows; 0 means every rank, -1 keeps the mesh layout
     Teuchos::RCP<Teuchos::ParameterList> belos;  // tolerance, iterations, Belos Settings
     std::string blocks;               // blank means every block
     std::string file;                 // blank means the operator is not written
