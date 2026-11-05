@@ -51,6 +51,8 @@ maxwell_control<EvalT>::maxwell_control(Teuchos::ParameterList & settings, const
   }
     
   useLeapFrog = settings.get<bool>("use leap frog",false);
+  // Weight a of a <E_tan, V> on faces where B is Neumann; 1/sqrt(eps*mu) is the matched first-order ABC.
+  abc_coeff = settings.get<double>("ABC coefficient",1.0-0.9944);
 }
 
 // ========================================================================================
@@ -359,7 +361,7 @@ void maxwell_control<EvalT>::boundaryResidual() {
     auto off = subview(wkset->offsets, Enum, ALL());
     auto basis = wkset->basis_side[wkset->usebasis[Enum]];
     
-    double gamma = -0.9944;
+    double abc = abc_coeff;
     if (bcs(Bnum,cside) == "Neumann") { // Really ABC
       // Contributes -<nxnxE,V> along boundary in B equation
       
@@ -371,9 +373,9 @@ void maxwell_control<EvalT>::boundaryResidual() {
           EvalT nce_x = ny(elem,pt)*Ez(elem,pt) - nz(elem,pt)*Ey(elem,pt);
           EvalT nce_y = nz(elem,pt)*Ex(elem,pt) - nx(elem,pt)*Ez(elem,pt);
           EvalT nce_z = nx(elem,pt)*Ey(elem,pt) - ny(elem,pt)*Ex(elem,pt);
-          EvalT c0 = -(1.0+gamma)*(ny(elem,pt)*nce_z - nz(elem,pt)*nce_y)*wts(elem,pt);
-          EvalT c1 = -(1.0+gamma)*(nz(elem,pt)*nce_x - nx(elem,pt)*nce_z)*wts(elem,pt);
-          EvalT c2 = -(1.0+gamma)*(nx(elem,pt)*nce_y - ny(elem,pt)*nce_x)*wts(elem,pt);
+          EvalT c0 = -abc*(ny(elem,pt)*nce_z - nz(elem,pt)*nce_y)*wts(elem,pt);
+          EvalT c1 = -abc*(nz(elem,pt)*nce_x - nx(elem,pt)*nce_z)*wts(elem,pt);
+          EvalT c2 = -abc*(nx(elem,pt)*nce_y - ny(elem,pt)*nce_x)*wts(elem,pt);
           for (size_type dof=0; dof<basis.extent(1); dof++ ) {
             res(elem,off(dof)) += c0*basis(elem,dof,pt,0) + c1*basis(elem,dof,pt,1) + c2*basis(elem,dof,pt,2);
           }

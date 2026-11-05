@@ -78,6 +78,7 @@ namespace MrHyDE {
     
     int Enum, Bnum, spaceDim;
     bool useLeapFrog, include_Beqn, include_Eeqn;
+    double abc_coeff;
     
     Teuchos::RCP<Teuchos::Time> volumeResidualFunc = Teuchos::TimeMonitor::getNewCounter("MrHyDE::maxwell_control::volumeResidual() - function evaluation");
     Teuchos::RCP<Teuchos::Time> volumeResidualFill = Teuchos::TimeMonitor::getNewCounter("MrHyDE::maxwell_control::volumeResidual() - evaluation of residual");
