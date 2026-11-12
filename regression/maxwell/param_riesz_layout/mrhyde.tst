@@ -10,7 +10,7 @@ from parse_log import solve_iterations, trust_region_rows
 # ==============================================================================
 # Parsing input
 
-desc = ''' The Riesz map's control rows on the mesh layout (ranks: -1), spread over every
+desc = ''' The Riesz map's control rows on the mesh layout (ranks: mesh), spread over every
 rank (the default) and gathered on one (ranks: 1) must give the same trust-region
 step, and moving them must not raise the Riesz CG count. '''
 

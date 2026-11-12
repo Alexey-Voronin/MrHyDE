@@ -29,52 +29,40 @@ class MrHyDE_ParamRiesz {
 public:
 
   // P_factor is P with a sparser stored pattern, or null to factor P itself.
-  MrHyDE_ParamRiesz(const matrix_RCP & P_, const std::string & solver_name_ = "KLU2",
+  MrHyDE_ParamRiesz(const matrix_RCP & P_, const std::string & amesos_name_ = "KLU2",
                     const matrix_RCP & P_factor_ = Teuchos::null)
-  : P(P_), P_factor(P_factor_.is_null() ? P_ : P_factor_), solver_name(solver_name_) {}
+  : P(P_), P_factor(P_factor_.is_null() ? P_ : P_factor_), amesos_name(amesos_name_) {}
 
   // Krylov on the control rows P_live; P is diagonal on the other rows, given by diag.
   MrHyDE_ParamRiesz(const matrix_RCP & P_, const matrix_RCP & P_live_, const vector_RCP & diag,
                     const Teuchos::RCP<LA_Operator> & prec_, const MrHyDE::ParamRieszConfig & cfg,
                     const int verbosity_ = 0)
-  : P(P_), P_factor(P_), solver_name(cfg.krylov == "GMRES" ? "Pseudo Block GMRES" : "Pseudo Block CG"),
+  : P(P_), P_factor(P_), krylov_name(cfg.krylov == "GMRES" ? "Pseudo Block GMRES" : "Pseudo Block CG"),
     P_live(P_live_), prec(prec_), belos_params(cfg.belos), verbosity(verbosity_), strict(cfg.strict),
     slab_cap(cfg.krylov == "GMRES" ? 1 : (cfg.slabs_per_solve > 0 ? size_t(cfg.slabs_per_solve) : max_auto_slabs)) {
     inv_diag = Teuchos::rcp(new LA_MultiVector(diag->getMap(), 1));
     inv_diag->reciprocal(*diag);
     to_live = Teuchos::rcp(new Tpetra::Import<LO,GO,SolverNode>(P->getRowMap(), P_live->getRowMap()));
+    live_rows = Teuchos::rcp(new LA_MultiVector(P->getRowMap(), 1));
+    LA_MultiVector ones(P_live->getRowMap(), 1);
+    ones.putScalar(1.0);
+    live_rows->doExport(ones, *to_live, Tpetra::INSERT);
     rank = P_live->getRowMap()->getComm()->getRank();
   }
 
-  // y <- P x
-  void apply(const vector_RCP & x, const vector_RCP & y) const {
-    P->apply(*x, *y);
-  }
-
-  // y <- P^-1 x. One factorization serves every slab and every CG iteration.
-  void applyInverse(const vector_RCP & x, const vector_RCP & y) const {
-    Teuchos::TimeMonitor localtimer(*solvetimer);
-    if (!P_live.is_null()) {
-      this->solveControlRows({x}, {y}, true);
-      return;
-    }
-    if (solver.is_null()) {
-      Teuchos::TimeMonitor localfactortimer(*factortimer);
-      solver = Amesos2::create<LA_CrsMatrix,LA_MultiVector>(solver_name, P_factor, y, x);
-      solver->symbolicFactorization();
-      solver->numericFactorization();
-    }
-    solver->setX(y);
-    solver->setB(x);
-    solver->solve();
+  // ys[s] <- P xs[s]
+  void apply(const std::vector<vector_RCP> & xs, const std::vector<vector_RCP> & ys) const {
+    for (size_t s = 0; s < xs.size(); ++s) P->apply(*xs[s], *ys[s]);
   }
 
   // ys[s] <- P^-1 xs[s]; the iterative CG apply solves the slabs in groups of at most slab_cap.
   void applyInverse(const std::vector<vector_RCP> & xs, const std::vector<vector_RCP> & ys) const {
     std::vector<vector_RCP> bx, by;
     for (size_t s = 0; s < xs.size(); ++s) {
-      // An all-zero slab maps to zero; in a batch it would break CG under a Deflation Quorum above 1.
-      if (slab_cap > 1 && allZero(*xs[s])) { ys[s]->putScalar(0.0); }
+      // A slab zero on the control rows needs only the diagonal; in a batch it would break CG under a Deflation Quorum above 1.
+      if (slab_cap > 1 && controlRowsZero(*xs[s])) {
+        ys[s]->elementWiseMultiply(1.0, *inv_diag->getVector(0), *xs[s], 0.0);
+      }
       else { bx.push_back(xs[s]); by.push_back(ys[s]); }
     }
     const size_t groups = (bx.size() + slab_cap - 1) / slab_cap;
@@ -87,16 +75,38 @@ public:
                                       std::vector<vector_RCP>(by.begin() + s0, by.begin() + s0 + nb), false);
       }
       // A batch that does not converge is redone slab by slab, so one bad slab cannot spoil the others.
-      for (size_t s = s0; s < s0 + nb && !done; ++s) { this->applyInverse(bx[s], by[s]); }
+      for (size_t s = s0; s < s0 + nb && !done; ++s) { this->applySlabInverse(bx[s], by[s]); }
       s0 += nb;
     }
   }
 
 private:
 
-  static bool allZero(const LA_MultiVector & x) {
+  // y <- P^-1 x. One factorization serves every slab and every CG iteration.
+  void applySlabInverse(const vector_RCP & x, const vector_RCP & y) const {
+    Teuchos::TimeMonitor localtimer(*solvetimer);
+    if (!P_live.is_null()) {
+      this->solveControlRows({x}, {y}, true);
+      return;
+    }
+    if (solver.is_null()) {
+      Teuchos::TimeMonitor localfactortimer(*factortimer);
+      solver = Amesos2::create<LA_CrsMatrix,LA_MultiVector>(amesos_name, P_factor, y, x);
+      solver->symbolicFactorization();
+      solver->numericFactorization();
+    }
+    solver->setX(y);
+    solver->setB(x);
+    solver->solve();
+  }
+
+  bool controlRowsZero(const LA_MultiVector & x) const {
+    if (mask_work.is_null() || mask_work->getNumVectors() != x.getNumVectors()) {
+      mask_work = Teuchos::rcp(new LA_MultiVector(x.getMap(), x.getNumVectors(), false));
+    }
+    mask_work->elementWiseMultiply(1.0, *live_rows->getVector(0), x, 0.0);
     Teuchos::Array<typename LA_MultiVector::mag_type> nrm(x.getNumVectors());
-    x.normInf(nrm());
+    mask_work->normInf(nrm());
     for (const auto v : nrm) { if (v != 0) return false; }
     return true;
   }
@@ -124,7 +134,7 @@ private:
       if (!prec.is_null()) { problem->setLeftPrec(prec); }
       problem->setProblem();
       Belos::SolverFactory<ScalarT,LA_MultiVector,LA_Operator> factory;
-      krylov = factory.create(solver_name, belos_params);
+      krylov = factory.create(krylov_name, belos_params);
       krylov->setProblem(problem);
     }
     else {
@@ -152,7 +162,8 @@ private:
   }
 
   matrix_RCP P, P_factor;
-  std::string solver_name;
+  std::string amesos_name;   // apply exact
+  std::string krylov_name;   // apply iterative
   matrix_RCP P_live;
   Teuchos::RCP<LA_Operator> prec;
   Teuchos::RCP<Teuchos::ParameterList> belos_params;
@@ -163,6 +174,8 @@ private:
   int rank = 0;
   mutable bool warned = false;
   mutable vector_RCP b_work, z_work;   // control-row RHS and solution, reused across applies
+  vector_RCP live_rows;                // 1 on P's control rows, 0 on its diagonal-only rows
+  mutable vector_RCP mask_work;
   vector_RCP inv_diag;
   Teuchos::RCP<Tpetra::Import<LO,GO,SolverNode> > to_live;
   mutable Teuchos::RCP<Belos::LinearProblem<ScalarT,LA_MultiVector,LA_Operator> > problem;

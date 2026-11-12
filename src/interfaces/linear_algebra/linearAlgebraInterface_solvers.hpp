@@ -22,7 +22,7 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
   if (cntxt->use_direct && cntxt->reuse_across_sweeps) {
     // A kept Jacobian is factored when it is assembled; every other solve only back-solves.
     const int slot = cntxt->sweep_kind;
-    Teuchos::RCP<Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> > & kept = cntxt->kept_amesos[slot];
+    Teuchos::RCP<Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> > & kept = cntxt->kept[slot].amesos;
     const bool refactor = kept.is_null() || cntxt->jacobian_rebuilt_this_step;
     if (kept.is_null()) {
       kept = Amesos2::create<LA_CrsMatrix,LA_MultiVector>(cntxt->amesos_type, J, r, soln);
@@ -34,7 +34,7 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
       kept->setA(J, Amesos2::SYMBFACT);
       kept->numericFactorization();
     }
-    cntxt->trackKeptScale(refactor);
+    cntxt->kept[slot].checkScale(cntxt->stage_alpha_u * cntxt->operator_dt, refactor);
     kept->setX(soln);
     kept->setB(r);
     kept->solve();
@@ -52,11 +52,6 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
     cntxt->amesos_solver->numericFactorization().solve();
   }
   else {
-    // Only state contexts keep a Jacobian per sweep kind; the L2 and parameter contexts read the flag too.
-    const bool keep = cntxt->reuse_across_sweeps && !cntxt->kept_matrix[cntxt->sweep_kind].is_null();
-    if (keep) {
-      cntxt->trackKeptScale(cntxt->jacobian_rebuilt_this_step);
-    }
     // GCRODR and RCG carry state (recycled subspace, conjugate vectors) that
     // must survive across solves; cache the SolverManager + LinearProblem.
     Teuchos::RCP<LA_LinearProblem> Problem;
@@ -76,12 +71,10 @@ void LinearAlgebraInterface<Node>::linearSolver(Teuchos::RCP<LinearSolverContext
     }
     if (cntxt->use_preconditioner) {
       Teuchos::RCP<LA_Operator> preconditioner = this->buildOrUpdatePreconditioner(cntxt, J);
-      if (keep) {
-        cntxt->keepPreconditioner();
-      }
       preconditioner = block_prec::maybeScaleSplits<Node>(cntxt, *Problem, preconditioner);
       this->attachPreconditionerToProblem(cntxt, Problem, preconditioner);
     }
+    cntxt->keepSweep();
     Problem->setProblem();
     if (reuse) {
       // Explicit re-bind; some SolverManagers cache op/prec handles at setProblem
@@ -249,7 +242,7 @@ void LinearAlgebraInterface<Node>::linearSolver(const size_t & set, matrix_RCP &
   context[set]->equation_set_index = set;
   // Kept here, not at sweep start: setup can leave a mass matrix in the context.
   if (context[set]->reuse_across_sweeps) {
-    context[set]->kept_matrix[context[set]->sweep_kind] = J;
+    context[set]->kept[context[set]->sweep_kind].matrix = J;
   }
   this->linearSolver(context[set],J,r,soln);
 }

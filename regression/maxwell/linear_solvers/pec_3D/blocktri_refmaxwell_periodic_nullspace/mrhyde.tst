@@ -10,7 +10,7 @@ from parse_log import check, Results
 
 its = mrhyde_test_support('''RefMaxwell on a cavity periodic in z, refined in h at a large fixed dt.
 D0 times the nodal coordinates wraps across the periodic face and misses the constant z field, so
-MrHyDE supplies the edge nullspace; with MueLu's own one the iteration counts climb out of band.''')
+MrHyDE supplies the edge nullspace. The off deck ('periodic edge nullspace: false') runs with MueLu's own.''')
 its.opts.verbose = True
 
 #TESTING active
@@ -38,5 +38,12 @@ for mesh in MESHES:
             else "MueLu built D0 times coords itself, which is wrong across the periodic face")
     mean, imax = CASES[mesh]
     check(solves=2, mean=mean, imax=imax, log=log, res=res, label="%s iteration counts" % mesh)
+
+# MueLu's own nullspace on the same mesh, far outside the band above.
+log = "mrhyde_N16x8x4_off.log"
+status += its.call("mpiexec -n 4 ../../../../mrhyde input_N16x8x4_off.yaml >& %s" % log)
+res.add("building edge nullspace" in open(log).read(), "N16x8x4 flag off",
+        "MueLu built D0 times coords itself")
+check(solves=2, mean=44.0, imax=44, log=log, res=res, label="N16x8x4 flag off iteration counts")
 
 sys.exit(status + res.write())

@@ -38,6 +38,7 @@ public:
   Teuchos::RCP<const LA_Map> getDomainMap() const override { return op_->getDomainMap(); }
   Teuchos::RCP<const LA_Map> getRangeMap() const override { return op_->getRangeMap(); }
   bool hasTransposeApply() const override { return false; }
+  void setOperator(const Teuchos::RCP<const LA_Operator> & op) { op_ = op; }
 
   void apply(const LA_MultiVector & X, LA_MultiVector & Y,
              Teuchos::ETransp mode = Teuchos::NO_TRANS,
@@ -75,10 +76,8 @@ private:
 // d_k = 1 / ||r_k|| on the rows of split k (rowSplit[lid] = k), or 1 / ||r|| where r_k = 0;
 // the norms are collective.
 template<class Node>
-Teuchos::RCP<typename BlockTypes<Node>::Vector>
-splitRowScales(const typename BlockTypes<Node>::MultiVector & r, const std::vector<int> & rowSplit,
-               const size_t numSplits) {
-  using LA_Vector = typename BlockTypes<Node>::Vector;
+void splitRowScales(const typename BlockTypes<Node>::MultiVector & r, const std::vector<int> & rowSplit,
+                    const size_t numSplits, typename BlockTypes<Node>::Vector & d) {
   auto slot = [&](const size_t i) { return rowSplit[i] < 0 ? numSplits : static_cast<size_t>(rowSplit[i]); };
   std::vector<ScalarT> localSq(numSplits + 1, 0.0), globalSq(numSplits + 1, 0.0);
   {
@@ -97,12 +96,8 @@ splitRowScales(const typename BlockTypes<Node>::MultiVector & r, const std::vect
   for (size_t k = 0; k < numSplits; ++k) {
     if (globalSq[k] > 0.0) scale[k] = 1.0 / std::sqrt(globalSq[k]);
   }
-  Teuchos::RCP<LA_Vector> d = Teuchos::rcp(new LA_Vector(r.getMap(), false));
-  {
-    auto dv = d->getLocalViewHost(Tpetra::Access::OverwriteAll);
-    for (size_t i = 0; i < rowSplit.size(); ++i) dv(i, 0) = scale[slot(i)];
-  }
-  return d;
+  auto dv = d.getLocalViewHost(Tpetra::Access::OverwriteAll);
+  for (size_t i = 0; i < rowSplit.size(); ++i) dv(i, 0) = scale[slot(i)];
 }
 
 // Belos solves (D J)(M D^{-1}) y = D r, so it minimizes and tests D(r - J x).
@@ -120,14 +115,24 @@ maybeScaleSplits(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
   TEUCHOS_TEST_FOR_EXCEPTION(adapter.is_null(), std::runtime_error,
     "'split residual scaling' needs the block-triangular preconditioner.");
   const LA_MultiVector & r = *problem.getRHS();
-  Teuchos::RCP<LA_Vector> d = splitRowScales<Node>(r, adapter->rowSplit(), adapter->numSplits());
-  Teuchos::RCP<LA_Vector> dinv = Teuchos::rcp(new LA_Vector(r.getMap(), false));
-  dinv->reciprocal(*d);
-  Teuchos::RCP<LA_MultiVector> rhs = Teuchos::rcp(new LA_MultiVector(r.getMap(), r.getNumVectors(), false));
-  rhs->elementWiseMultiply(1.0, *d, r, 0.0);
-  problem.setOperator(Teuchos::rcp(new ScaledOperator<Node>(problem.getOperator(), Teuchos::null, d)));
-  problem.setRHS(rhs);
-  return Teuchos::rcp(new ScaledOperator<Node>(prec, dinv, Teuchos::null));
+  typename LinearSolverContext<Node>::SplitScaling & c = cntxt->split_scaling;
+  if (c.d.is_null() || c.d->getMap().get() != r.getMap().get()) {
+    c.d = Teuchos::rcp(new LA_Vector(r.getMap(), false));
+    c.dinv = Teuchos::rcp(new LA_Vector(r.getMap(), false));
+    c.op = Teuchos::rcp(new ScaledOperator<Node>(problem.getOperator(), Teuchos::null, c.d));
+    c.prec = Teuchos::rcp(new ScaledOperator<Node>(prec, c.dinv, Teuchos::null));
+  }
+  if (c.rhs.is_null() || c.rhs->getMap().get() != r.getMap().get() || c.rhs->getNumVectors() != r.getNumVectors()) {
+    c.rhs = Teuchos::rcp(new LA_MultiVector(r.getMap(), r.getNumVectors(), false));
+  }
+  splitRowScales<Node>(r, adapter->rowSplit(), adapter->numSplits(), *c.d);
+  c.dinv->reciprocal(*c.d);
+  c.rhs->elementWiseMultiply(1.0, *c.d, r, 0.0);
+  c.op->setOperator(problem.getOperator());
+  c.prec->setOperator(prec);
+  problem.setOperator(c.op);
+  problem.setRHS(c.rhs);
+  return c.prec;
 }
 
 } // namespace block_prec

@@ -39,6 +39,21 @@ struct AuxiliaryBasisSpec {
   std::string hgrad_name, hcurl_name;
   int hgrad_order = 1, hcurl_order = 1;
   bool p_multigrid = false;
+  bool periodic_nullspace = true;   // 'periodic edge nullspace' in the split
+};
+
+// D0's rows applied to each element's own H(grad) DOF coordinates; unreached counts owned rows no owned element touches.
+template<class Node>
+struct EdgeNullspace {
+  Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > nullspace;
+  GO unreached = 0;
+};
+
+// Optional side outputs of SolverManager::buildEdgeNullspace.
+template<class Node>
+struct EdgeNullspaceOutputs {
+  std::map<GO, std::vector<double> > * dof_coords = nullptr;                  // each DOF's lowest-sum periodic image
+  typename RefMaxwellData<Node>::LA_CoordMultiVector * row_coords = nullptr;  // reached rows take their mean DOF coordinate
 };
 
 /**
@@ -168,14 +183,14 @@ public:
                                const size_t edgeBlock);
   // Constant fields on D0's rows from element-local coordinates; edgeGids(block, elem, gids) gives D0-row GIDs.
   template<class EdgeGids>
-  vector_RCP buildEdgeNullspace(const matrix_RCP & D0,
-                                const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
-                                const EdgeGids & edgeGids,
-                                GO & unreached,
-                                std::map<GO, std::vector<double> > * gid_to_coords = nullptr);
-  // Coordinates and lumped mass of the H(grad) DOFs on nodal_map; returns GID to coordinates.
-  std::map<GO, std::vector<double> >
-  computeAuxiliaryNodalData(const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
+  EdgeNullspace<Node> buildEdgeNullspace(const matrix_RCP & D0,
+                                         const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
+                                         const std::string & hgrad_name,
+                                         const int hgrad_order,
+                                         const EdgeGids & edgeGids,
+                                         const EdgeNullspaceOutputs<Node> & out = EdgeNullspaceOutputs<Node>());
+  // Coordinates and lumped mass of the H(grad) DOFs on nodal_map.
+  void computeAuxiliaryNodalData(const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
                             const std::string & hgrad_name,
                             const int hgrad_order,
                             const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > & nodal_map,

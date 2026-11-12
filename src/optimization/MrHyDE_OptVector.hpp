@@ -1189,9 +1189,7 @@ public:
         }
       }
       if ( isDual ) { paramRiesz->applyInverse(src, dst); }
-      else {
-        for (size_t s=0; s<src.size(); ++s) { paramRiesz->apply(src[s], dst[s]); }
-      }
+      else          { paramRiesz->apply(src, dst); }
       if ( isDual && !reuse ) { this->rememberLastSolve(); }
     }
     else if ( have_mass_diag ) {

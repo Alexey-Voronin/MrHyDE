@@ -64,7 +64,7 @@ private:
       Teuchos::null, Thyra::identity<ScalarT>(invDiag[1]->range()));
     const Teko::LinearOp D = Thyra::block2x2<ScalarT>(invDiag[0], Teuchos::null,
                                                       Teuchos::null, invDiag[1]);
-    if (!cntxt_->schur.exact_curl_lower) {
+    if (parseTriangleSide(cntxt_->schur.triangle) != TriangleSide::Full) {
       return Thyra::multiply<ScalarT>(U, D);
     }
     // Block elimination with one P_0 apply: y = P_0^-1 r_0, e = P_1^-1 (r_1 - J10 y), x_0 = y - s C e.
@@ -82,9 +82,10 @@ private:
     const bool upper = resolveUpperTriangle(cntxt_->schur.triangle,
                                            cntxt_->right_preconditioner);
     if (verbosity_ >= 5 && J_->getComm()->getRank() == 0) {
-      std::cout << "[BlockTri] triangle = " << (upper ? "upper" : "lower")
-                << (parseTriangleSide(cntxt_->schur.triangle) == TriangleSide::Auto
-                    ? " (auto)" : "") << std::endl;
+      const TriangleSide side = parseTriangleSide(cntxt_->schur.triangle);
+      std::cout << "[BlockTri] triangle = "
+                << (side == TriangleSide::Auto ? std::string(upper ? "upper (auto)" : "lower (auto)")
+                                               : triangleSideName(side)) << std::endl;
     }
     return upper;
   }

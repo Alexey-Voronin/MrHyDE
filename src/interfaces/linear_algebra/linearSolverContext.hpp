@@ -35,6 +35,8 @@
 
 namespace MrHyDE {
 
+namespace block_prec { template<class Node> class ScaledOperator; }
+
 // Schur and block-triangular options.
 // Overview at the top of linearAlgebraInterface_blockprec.hpp.
 struct SchurConfig {
@@ -46,7 +48,6 @@ struct SchurConfig {
   bool diagonal_prec_use_lumped;    // 'diag use lumped diagonal', the Diagonal split inverse
   ScalarT mass_scale;               // multiplies M_p in the 'mass' Schur variant
   bool split_residual_scaling[2];   // 'split residual scaling' per sweep kind (block_prec/SplitScaling.hpp)
-  bool exact_curl_lower;            // 'exact-curl lower factor': compose the full block LU, not only the upper factor
 };
 
 // Auxiliary operators for the H(curl) preconditioners, built once per set by
@@ -115,6 +116,7 @@ struct FieldSplit {
   Teuchos::RCP<MueLu::RefMaxwell<ScalarT,LO,GO,Node> > refmaxwell_prec;
   Teuchos::RCP<MueLu::Maxwell1<ScalarT,LO,GO,Node> > maxwell1_prec;
   ScalarT addon_beta_built = 0.0;     // beta baked into refmaxwell_prec
+  Teuchos::RCP<Xpetra::MultiVector<ScalarT,LO,GO,Node> > edge_nullspace;   // RefMaxwellData's, Dirichlet rows zeroed
 };
 
 // Monolithic AMG only.
@@ -199,50 +201,44 @@ public:
   // With 'reuse Jacobian across sweeps', restore the Jacobian and preconditioner kept for this sweep's kind.
   void setSweepKind(const bool adjoint) {
     sweep_kind = adjoint ? 1 : 0;
-    if (reuse_across_sweeps && !kept_matrix[sweep_kind].is_null()) {
-      matrix = kept_matrix[sweep_kind];
+    const KeptSweep & k = kept[sweep_kind];
+    if (reuse_across_sweeps && !k.matrix.is_null()) {
+      matrix = k.matrix;
       have_matrix = true;
-      prec = kept_prec[sweep_kind];
-      prec_dd = kept_prec_dd[sweep_kind];
-      prec_block = kept_prec_block[sweep_kind];
+      prec = k.prec;
+      prec_dd = k.prec_dd;
+      prec_block = k.prec_block;
       have_preconditioner = !prec.is_null() || !prec_dd.is_null() || !prec_block.is_null();
     }
   }
 
-  // Iterative solves keep the preconditioner built against this kind's Jacobian.
-  void keepPreconditioner() {
-    kept_prec[sweep_kind] = prec;
-    kept_prec_dd[sweep_kind] = prec_dd;
-    kept_prec_block[sweep_kind] = prec_block;
-  }
-
-  // Records the operator scale when the kept Jacobian is rebuilt and checks it when reused.
-  void trackKeptScale(const bool rebuilt) {
-    const ScalarT scale = stage_alpha_u * operator_dt;
-    if (rebuilt) {
-      kept_scale[sweep_kind] = scale;
+  // An iterative solve checks the kept Jacobian's scale and keeps the preconditioner built against it.
+  void keepSweep() {
+    // Only state contexts keep a Jacobian per sweep kind; the L2 and parameter contexts read the flag too.
+    KeptSweep & k = kept[sweep_kind];
+    if (!reuse_across_sweeps || k.matrix.is_null()) {
       return;
     }
-    TEUCHOS_TEST_FOR_EXCEPTION(scale != kept_scale[sweep_kind], std::runtime_error,
-      "reuse Jacobian across sweeps: the kept factorization was built at (stage weight * dt"
-      " / leading BDF weight) = " << kept_scale[sweep_kind] << " but this solve needs " << scale
-      << "; it is valid only for a constant operator (linear, single-stage, fixed dt, one BDF"
-      " order throughout).");
+    k.checkScale(stage_alpha_u * operator_dt, jacobian_rebuilt_this_step);
+    k.prec = prec;
+    k.prec_dd = prec_dd;
+    k.prec_block = prec_block;
   }
 
-  // Passes 'Amesos debug level' to a newly created Amesos2 solver.
+  // Passes 'Amesos2 Settings' to a newly created Amesos2 solver, which validates it.
   void setAmesosParameters(Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> & solver) const {
-    if (amesos_debug_level <= 0) {
+    if (amesos_params.is_null()) {
       return;
     }
+    // Amesos2 ignores a list not named "Amesos2".
     Teuchos::RCP<Teuchos::ParameterList> pl = Teuchos::rcp(new Teuchos::ParameterList("Amesos2"));
-    pl->sublist(solver.name()).set("DebugLevel", amesos_debug_level);
+    pl->setParameters(*amesos_params);
     solver.setParameters(pl);
   }
 
   // Parsed deck
   string amesos_type;                 // KLU2, SuperLU, ...
-  int amesos_debug_level = 0;         // Amesos2 DebugLevel; 1 reports why KLU2 fails, above 1 dumps every entry
+  Teuchos::RCP<Teuchos::ParameterList> amesos_params;  // 'Amesos2 Settings', e.g. {KLU2: {DebugLevel: 1}}
   string belos_type;                  // Block GMRES, BiCGStab, GCRODR, ...
   bool flexible_gmres = false;        // gates the inner-Krylov wraps
   string prec_type;                   // AMG, Ifpack2, domain decomposition, block diagonal/triangular
@@ -298,16 +294,40 @@ public:
 
   Teuchos::RCP<Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> > amesos_solver;
 
+  // block_prec::maybeScaleSplits refills these on every solve.
+  struct SplitScaling {
+    Teuchos::RCP<Tpetra::Vector<ScalarT,LO,GO,Node> > d, dinv;
+    Teuchos::RCP<LA_MultiVector> rhs;
+    Teuchos::RCP<block_prec::ScaledOperator<Node> > op, prec;
+  } split_scaling;
+
+  // What 'reuse Jacobian across sweeps' keeps for one sweep kind.
+  struct KeptSweep {
+    matrix_RCP matrix;
+    Teuchos::RCP<Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> > amesos;
+    Teuchos::RCP<MueLu::TpetraOperator<ScalarT, LO, GO, Node> > prec;
+    Teuchos::RCP<Ifpack2::Preconditioner<ScalarT, LO, GO, Node> > prec_dd;
+    Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,Node> > prec_block;
+    // Operator scale (stage_alpha_u*operator_dt) the slot was built at; a change means it is stale
+    // (variable dt, a multi-stage method or a BDF order switch).
+    ScalarT scale = 0.0;
+
+    // Records the scale when the slot is rebuilt and checks it when reused.
+    void checkScale(const ScalarT s, const bool rebuilt) {
+      if (rebuilt) {
+        scale = s;
+        return;
+      }
+      TEUCHOS_TEST_FOR_EXCEPTION(s != scale, std::runtime_error,
+        "reuse Jacobian across sweeps: the kept Jacobian was built at (stage weight * dt"
+        " / leading BDF weight) = " << scale << " but this solve needs " << s
+        << "; it is valid only for a constant operator (linear, single-stage, fixed dt, one BDF"
+        " order throughout).");
+    }
+  };
   // Index 0 forward, 1 adjoint; filled only with 'reuse Jacobian across sweeps'.
   int sweep_kind = 0;
-  matrix_RCP kept_matrix[2];
-  Teuchos::RCP<Amesos2::Solver<LA_CrsMatrix,LA_MultiVector> > kept_amesos[2];
-  Teuchos::RCP<MueLu::TpetraOperator<ScalarT, LO, GO, Node> > kept_prec[2];
-  Teuchos::RCP<Ifpack2::Preconditioner<ScalarT, LO, GO, Node> > kept_prec_dd[2];
-  Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,Node> > kept_prec_block[2];
-  // Operator scale (stage_alpha_u*operator_dt) each kept slot was factored at; a change means the
-  // frozen factorization is stale (variable dt, a multi-stage method or a BDF order switch).
-  ScalarT kept_scale[2] = {0.0, 0.0};
+  KeptSweep kept[2];
   Teuchos::RCP<MueLu::TpetraOperator<ScalarT, LO, GO, Node> > prec;      // monolithic AMG
   Teuchos::RCP<Ifpack2::Preconditioner<ScalarT, LO, GO, Node> > prec_dd; // domain decomposition
   Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,Node> > prec_block;        // block diagonal/triangular
@@ -375,7 +395,9 @@ private:
 
   void parseBelosAndAmesosSettings(Teuchos::ParameterList & settings) {
     amesos_type = settings.get<string>("Amesos solver","KLU2");
-    amesos_debug_level = settings.get<int>("Amesos debug level", 0);
+    if (settings.isSublist("Amesos2 Settings")) {
+      amesos_params = Teuchos::rcp(new Teuchos::ParameterList(settings.sublist("Amesos2 Settings")));
+    }
     belos_type = settings.get<string>("Belos solver","Block GMRES");
     // Accept "Flexible Gmres" at top level or inside "Belos Settings".
     bool topFlex = settings.isType<bool>("Flexible Gmres") && settings.get<bool>("Flexible Gmres");
@@ -614,6 +636,8 @@ private:
     reuse_matrix = settings.get<bool>("reuse Jacobian",false);
     // Asserts the operator depends on neither the control nor the state; leave it off otherwise.
     reuse_across_sweeps = settings.get<bool>("reuse Jacobian across sweeps",false);
+    TEUCHOS_TEST_FOR_EXCEPTION(reuse_across_sweeps && !reuse_matrix, std::runtime_error,
+      "'reuse Jacobian across sweeps' needs 'reuse Jacobian: true'.");
     schur.approximation_type = "base";
     schur.mass_scale = 1.0;
     schur.damping = Teuchos::ScalarTraits<ScalarT>::one();
@@ -622,7 +646,6 @@ private:
     schur.triangle = "auto";
     schur.diagonal_prec_use_lumped = false;
     schur.split_residual_scaling[0] = schur.split_residual_scaling[1] = false;
-    schur.exact_curl_lower = false;
   }
 
   void parsePreconditionerSublist() {
@@ -663,9 +686,6 @@ private:
     if (scheme_sublist.isParameter("triangle")) {
       schur.triangle = block_prec::canonicalSchurTriangle(scheme_sublist.get<string>("triangle"));
     }
-    if (scheme_sublist.isParameter("exact-curl lower factor")) {
-      schur.exact_curl_lower = scheme_sublist.get<bool>("exact-curl lower factor");
-    }
     schur.damping = block_prec::scalarParam(scheme_sublist, "damping", schur.damping);
     if (scheme_sublist.isParameter("split residual scaling")) {
       const bool on = scheme_sublist.get<bool>("split residual scaling");
@@ -690,6 +710,10 @@ private:
         schur.damping != Teuchos::ScalarTraits<ScalarT>::one(), std::runtime_error,
         "'exact-curl' needs the upper triangle (right preconditioning) and damping 1.");
     }
+    TEUCHOS_TEST_FOR_EXCEPTION(block_prec::parseTriangleSide(schur.triangle) == block_prec::TriangleSide::Full &&
+                               block_prec::parseSchurVariant(schur.approximation_type) !=
+                               block_prec::SchurVariant::ExactCurl, std::runtime_error,
+      "'triangle: full' needs 'approximation type: exact-curl'.");
   }
 
   void initializeRuntimeState() {

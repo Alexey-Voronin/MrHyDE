@@ -93,11 +93,13 @@ inline SchurVariant parseSchurVariant(const std::string & canonical) {
   return SchurVariant::Base;
 }
 
-enum class TriangleSide { Auto, Upper, Lower };
+// 'full' applies both factors, a block LU; only 'exact-curl' supports it.
+enum class TriangleSide { Auto, Upper, Lower, Full };
 
 inline std::string triangleSideName(const TriangleSide side) {
   if (side == TriangleSide::Upper) return "upper";
   if (side == TriangleSide::Lower) return "lower";
+  if (side == TriangleSide::Full) return "full";
   return "auto";
 }
 
@@ -107,15 +109,17 @@ inline TriangleSide parseTriangleSide(const std::string & raw) {
   if (u == "AUTO") return TriangleSide::Auto;
   if (u == "UPPER") return TriangleSide::Upper;
   if (u == "LOWER") return TriangleSide::Lower;
+  if (u == "FULL") return TriangleSide::Full;
   TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error,
-    "Unsupported Schur triangle '" << raw << "'. Supported: auto, upper, lower.");
+    "Unsupported Schur triangle '" << raw << "'. Supported: auto, upper, lower, full.");
   return TriangleSide::Auto;
 }
 
 // 'auto' follows the Krylov side: a right preconditioner wants the upper triangle.
 inline bool resolveUpperTriangle(const std::string & triangle, const bool rightPreconditioner) {
   const TriangleSide side = parseTriangleSide(triangle);
-  return (side == TriangleSide::Auto) ? rightPreconditioner : (side == TriangleSide::Upper);
+  return (side == TriangleSide::Auto) ? rightPreconditioner
+                                      : (side == TriangleSide::Upper || side == TriangleSide::Full);
 }
 
 enum class BlockPrecType { AMG, RefMaxwell, Maxwell1, Direct, Diagonal, PMultigrid };

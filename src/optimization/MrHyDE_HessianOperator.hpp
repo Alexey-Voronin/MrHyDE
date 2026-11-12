@@ -83,7 +83,7 @@ public:
 
       for (size_t s=0; s<nslabs; ++s) {
         vector_RCP h = hvf_[s]->getVector();
-        if (!riesz_.is_null()) { riesz_->applyInverse(h,w_); h = w_; }
+        if (!riesz_.is_null()) { riesz_->applyInverse({h}, {w_}); h = w_; }
         Y.getVectorNonConst(c)->offsetViewNonConst(param_map_,s*nloc_)->update(alpha,*h,beta);
       }
     }

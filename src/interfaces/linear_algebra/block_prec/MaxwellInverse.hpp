@@ -38,7 +38,6 @@ struct RefMaxwellXpetraInputs {
   Teuchos::RCP<XpetraMatrix> D0_wrap;
   Teuchos::RCP<XpetraMatrix> M1_wrap;
   Teuchos::RCP<XpetraCoordMV> coords_xpetra;
-  Teuchos::RCP<Xpetra::MultiVector<ScalarT, LO, GO, Node> > nullspace;
 };
 
 template<class Node>
@@ -46,8 +45,7 @@ RefMaxwellXpetraInputs<Node> buildRefMaxwellXpetraInputs(
     const Teuchos::RCP<const Tpetra::CrsMatrix<ScalarT, LO, GO, Node> > & J,
     const Teuchos::RCP<const Tpetra::CrsMatrix<ScalarT, LO, GO, Node> > & D0,
     const Teuchos::RCP<const Tpetra::CrsMatrix<ScalarT, LO, GO, Node> > & M1,
-    const Teuchos::RCP<const Tpetra::MultiVector<typename Teuchos::ScalarTraits<ScalarT>::coordinateType, LO, GO, Node> > & nodal_coords,
-    const Teuchos::RCP<const Tpetra::MultiVector<ScalarT, LO, GO, Node> > & edge_nullspace = Teuchos::null) {
+    const Teuchos::RCP<const Tpetra::MultiVector<typename Teuchos::ScalarTraits<ScalarT>::coordinateType, LO, GO, Node> > & nodal_coords) {
   using CoordScalarT = typename Teuchos::ScalarTraits<ScalarT>::coordinateType;
   using TpetraCoordMV = Tpetra::MultiVector<CoordScalarT, LO, GO, Node>;
   RefMaxwellXpetraInputs<Node> out;
@@ -56,19 +54,24 @@ RefMaxwellXpetraInputs<Node> buildRefMaxwellXpetraInputs(
   out.M1_wrap = wrapAsXpetraMatrix<Node>(M1);
   out.coords_xpetra = Teuchos::rcp(new Xpetra::TpetraMultiVector<CoordScalarT, LO, GO, Node>(
       Teuchos::rcp_const_cast<TpetraCoordMV>(nodal_coords)));
-  if (!edge_nullspace.is_null()) {
-    // MueLu zeroes the Dirichlet rows only of a nullspace it forms itself.
-    out.nullspace = Teuchos::rcp(new Xpetra::TpetraMultiVector<ScalarT, LO, GO, Node>(
-        Teuchos::rcp(new Tpetra::MultiVector<ScalarT, LO, GO, Node>(*edge_nullspace, Teuchos::Copy))));
-    Kokkos::View<bool*, typename Node::device_type::memory_space> BCrows, BCcols, BCdomain;
-    int BCedges = 0, BCnodes = 0;
-    bool allEdgesBnd = false, allNodesBnd = false;
-    MueLu::Maxwell_Utils<ScalarT, LO, GO, Node>::detectBoundaryConditionsSM(
-        out.SM_wrap, out.D0_wrap, /*rowSumTol=*/ -1.0,
-        BCrows, BCcols, BCdomain, BCedges, BCnodes, allEdgesBnd, allNodesBnd);
-    MueLu::Utilities<ScalarT, LO, GO, Node>::ZeroDirichletRows(out.nullspace, BCrows);
-  }
   return out;
+}
+
+// Dirichlet edges and nodes as MueLu's Maxwell solvers find them, with no row-sum tolerance.
+template<class Node>
+struct MaxwellBCs {
+  Kokkos::View<bool*, typename Node::device_type::memory_space> rows, cols, domain;
+  int edges = 0, nodes = 0;
+};
+
+template<class Node>
+MaxwellBCs<Node> detectMaxwellBCs(Teuchos::RCP<Xpetra::Matrix<ScalarT, LO, GO, Node> > SM,
+                                  Teuchos::RCP<Xpetra::Matrix<ScalarT, LO, GO, Node> > D0) {
+  MaxwellBCs<Node> bc;
+  bool allEdges = false, allNodes = false;
+  MueLu::Maxwell_Utils<ScalarT, LO, GO, Node>::detectBoundaryConditionsSM(
+      SM, D0, /*rowSumTol=*/ -1.0, bc.rows, bc.cols, bc.domain, bc.edges, bc.nodes, allEdges, allNodes);
+  return bc;
 }
 
 // BC diagonals keep their original value: the nodal diagonal is O(h), so 1.0 is an outlier.
@@ -149,15 +152,8 @@ void addHiptmairUserData(Teuchos::ParameterList & mueluList,
   // A Dirichlet row of mat is an identity row. Left in D0, those edges let the
   // nodal correction D0*dphi write into constrained DOFs.
   using dev_mem_space = typename Node::device_type::memory_space;
-  Teuchos::RCP<Xpetra::Matrix<ScalarT,LO,GO,Node>> mat_x = wrapAsXpetraMatrix<Node>(mat);
-  Teuchos::RCP<Xpetra::Matrix<ScalarT,LO,GO,Node>> D0_raw = wrapAsXpetraMatrix<Node>(D0_matrix);
-  Kokkos::View<bool*, dev_mem_space> BCrows, BCcols, BCdomain;
-  bool allEdgesBnd = false, allNodesBnd = false;
-  int BCedges = 0, BCnodes = 0;
-  MueLu::Maxwell_Utils<ScalarT, LO, GO, Node>::detectBoundaryConditionsSM(
-      mat_x, D0_raw, /*rowSumTol=*/ -1.0,
-      BCrows, BCcols, BCdomain, BCedges, BCnodes, allEdgesBnd, allNodesBnd);
-  Kokkos::View<const bool*, dev_mem_space> BCrows_const = BCrows;
+  const MaxwellBCs<Node> bc = detectMaxwellBCs<Node>(wrapAsXpetraMatrix<Node>(mat), wrapAsXpetraMatrix<Node>(D0_matrix));
+  Kokkos::View<const bool*, dev_mem_space> BCrows_const = bc.rows;
   const typename BlockTypes<Node>::CrsMatrixRCP D0 = dropBCRows<Node>(D0_matrix, BCrows_const);
 
   Teuchos::RCP<Xpetra::Matrix<ScalarT,LO,GO,Node> > Kn = buildAuxNodalMatrix<Node>(mat, D0);
@@ -269,12 +265,18 @@ buildRefMaxwellPreconditioner(const typename BlockTypes<Node>::CrsMatrixRCP & J,
   matrix_RCP SM_for_setup = in.SM, M1_for_setup = in.M1;
 
   block_prec::detail::RefMaxwellXpetraInputs<Node> xpetraInputs = block_prec::detail::buildRefMaxwellXpetraInputs<Node>(
-    SM_for_setup, cntxt->refMaxwell.D0_matrix, M1_for_setup, cntxt->refMaxwell.nodal_coords,
-    cntxt->refMaxwell.edge_nullspace);
+    SM_for_setup, cntxt->refMaxwell.D0_matrix, M1_for_setup, cntxt->refMaxwell.nodal_coords);
   Teuchos::RCP<XpetraMatrix> SM_wrap = xpetraInputs.SM_wrap;
   Teuchos::RCP<XpetraMatrix> D0_wrap = xpetraInputs.D0_wrap;
   Teuchos::RCP<XpetraMatrix> M1_wrap = xpetraInputs.M1_wrap;
   auto coords_xpetra = xpetraInputs.coords_xpetra;
+  // MueLu zeroes the Dirichlet rows only of a nullspace it forms itself; those rows are fixed, so once per split.
+  if (!cntxt->refMaxwell.edge_nullspace.is_null() && splitState.edge_nullspace.is_null()) {
+    splitState.edge_nullspace = Teuchos::rcp(new Xpetra::TpetraMultiVector<ScalarT, LO, GO, Node>(
+        Teuchos::rcp(new Tpetra::MultiVector<ScalarT, LO, GO, Node>(*cntxt->refMaxwell.edge_nullspace, Teuchos::Copy))));
+    MueLu::Utilities<ScalarT, LO, GO, Node>::ZeroDirichletRows(
+        splitState.edge_nullspace, block_prec::detail::detectMaxwellBCs<Node>(SM_wrap, D0_wrap).rows);
+  }
 
   if (verbosity >= 10 && rank == 0) {
     std::cout << "[RefMaxwell preflight] A rows=" << J->getGlobalNumRows()
@@ -351,7 +353,7 @@ buildRefMaxwellPreconditioner(const typename BlockTypes<Node>::CrsMatrixRCP & J,
   }
   precCache = Teuchos::rcp(new RefMaxwellType(
       SM_wrap, D0_wrap, M1_wrap, M0inv_wrap, M1_wrap,
-      xpetraInputs.nullspace, coords_xpetra,
+      splitState.edge_nullspace, coords_xpetra,
       refmaxwellParams, true));
   splitState.addon_beta_built = haveAddon ? cntxt->refMaxwell.schur_addon_beta : 0.0;
   if (verbosity >= 10 && J->getComm()->getRank() == 0) {
@@ -448,21 +450,14 @@ buildMaxwell1Preconditioner(const typename BlockTypes<Node>::CrsMatrixRCP & J,
     Kn_from_M1 = MueLu::Maxwell_Utils<ScalarT, LO, GO, Node>::PtAPWrapper(
         xpetraInputs.M1_wrap, D0_wrap, rapList, "Kn_from_M1");
 
-    using dev_mem_space = typename Node::device_type::memory_space;
-    Kokkos::View<bool*, dev_mem_space> BCrowsK, BCcolsK_d0, BCdomainK;
-    bool allEdgesBnd = false, allNodesBnd = false;
-    int BCedges = 0, BCnodes = 0;
-    MueLu::Maxwell_Utils<ScalarT, LO, GO, Node>::detectBoundaryConditionsSM(
-        SM_wrap, D0_wrap, /*rowSumTol=*/ -1.0,
-        BCrowsK, BCcolsK_d0, BCdomainK,
-        BCedges, BCnodes, allEdgesBnd, allNodesBnd);
+    const block_prec::detail::MaxwellBCs<Node> bc = block_prec::detail::detectMaxwellBCs<Node>(SM_wrap, D0_wrap);
     if (verbosity >= 10 && rank == 0) {
-      std::cout << "[Maxwell1] Kn from M1: detected " << BCedges << " BC edges, "
-                << BCnodes << " BC nodes" << std::endl;
+      std::cout << "[Maxwell1] Kn from M1: detected " << bc.edges << " BC edges, "
+                << bc.nodes << " BC nodes" << std::endl;
     }
 
-    if (BCnodes > 0) {
-      block_prec::detail::applyDirichletBCsToKn<Node>(Kn_from_M1, BCdomainK, verbosity);
+    if (bc.nodes > 0) {
+      block_prec::detail::applyDirichletBCsToKn<Node>(Kn_from_M1, bc.domain, verbosity);
     }
     // MueLu hierarchy statistics require the global graph constants.
     Teuchos::rcp_const_cast<Xpetra::CrsGraph<LO, GO, Node> >(
@@ -472,7 +467,7 @@ buildMaxwell1Preconditioner(const typename BlockTypes<Node>::CrsMatrixRCP & J,
     maxwell1Params.set("rap: fix zero diagonals", false);
 
     if (filterOpts.verifyKnConsistency) {
-      block_prec::verifyKnConsistency<Node>(Kn_from_M1, SM_wrap, D0_wrap, BCdomainK,
+      block_prec::verifyKnConsistency<Node>(Kn_from_M1, SM_wrap, D0_wrap, bc.domain,
                                             *J->getComm(), verbosity);
     }
   }

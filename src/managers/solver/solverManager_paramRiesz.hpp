@@ -143,13 +143,13 @@ Teuchos::RCP<MrHyDE_ParamRiesz> SolverManager<Node>::buildIterativeParamRiesz(co
     pmap->getIndexBase(), pmap->getComm()));
   matrix_RCP P_live = restrictParamCrs<Node>(*paramMass, live_map, *assembled_diag, live_map);
 
-  // The control rows move to k ranks, cut along the couplings of P; k == 0 keeps the mesh layout.
-  const int k = paramRieszRanks(param_riesz.ranks, static_cast<GO>(live_map->getGlobalNumElements()),
-                                pmap->getComm()->getSize());
+  // The control rows move to nparts ranks, cut along the couplings of P; nparts == 0 keeps the mesh layout.
+  const int nparts = paramRieszRanks(param_riesz.ranks, static_cast<GO>(live_map->getGlobalNumElements()),
+                                     pmap->getComm()->getSize());
   Teuchos::RCP<const Map> edge_map = live_map;
   Teuchos::RCP<const Tpetra::Import<LO,GO,Node> > to_new;
-  if (k > 0) {
-    edge_map = (k == 1) ? Tpetra::Details::computeGatherMap(live_map, Teuchos::null) : partitionRows<Node>(P_live, k);
+  if (nparts > 0) {
+    edge_map = (nparts == 1) ? Tpetra::Details::computeGatherMap(live_map, Teuchos::null) : partitionRows<Node>(P_live, nparts);
     to_new = Teuchos::rcp(new Tpetra::Import<LO,GO,Node>(live_map, edge_map));
     P_live = importParamRows<Node>(*P_live, *to_new);
     P_live->fillComplete(edge_map, edge_map);
@@ -207,7 +207,7 @@ Teuchos::RCP<MrHyDE_ParamRiesz> SolverManager<Node>::buildIterativeParamRiesz(co
       nodal_map->getIndexBase(), nodal_map->getComm()));
     matrix_RCP D0_live = restrictParamCrs<Node>(*D0, live_map, live_nodes, live_node_map);
     Teuchos::RCP<const Map> node_map = live_node_map;
-    if (k > 0) {
+    if (nparts > 0) {
       // Each control node goes to the lowest rank holding one of its edges.
       D0_live = importParamRows<Node>(*D0_live, *to_new);
       std::vector<GO> held;
@@ -354,16 +354,18 @@ void SolverManager<Node>::buildParamGradient(matrix_RCP & D0,
   // Node coordinates: each node's lowest-sum periodic image, the same on every rank.
   const Teuchos::RCP<const Map> nodal_map = D0->getDomainMap();
   std::map<GO, std::vector<double> > gid_to_coords;
-  GO global_missing = 0;
-  nullspace = this->buildEdgeNullspace(D0, hgrad_dof,
+  EdgeNullspaceOutputs<Node> out;
+  out.dof_coords = &gid_to_coords;
+  const EdgeNullspace<Node> ens = this->buildEdgeNullspace(D0, hgrad_dof, hgrad_name, 1,
     [&](const size_t b, const LO elem, std::vector<GO> & gids) {
       std::vector<GO> prm_gids;
       params->paramDOF->getElementGIDs(elem, prm_gids, mesh->block_names[b]);
       gids.clear();
       for (const int off : params->paramDOF->getGIDFieldOffsets(mesh->block_names[b], 0)) gids.push_back(prm_gids[off]);
-    }, global_missing, &gid_to_coords);
-  TEUCHOS_TEST_FOR_EXCEPTION(global_missing > 0, std::runtime_error,
-    "Riesz map: " << global_missing << " owned control edges touch no element this rank owns; "
+    }, out);
+  nullspace = ens.nullspace;
+  TEUCHOS_TEST_FOR_EXCEPTION(ens.unreached > 0, std::runtime_error,
+    "Riesz map: " << ens.unreached << " owned control edges touch no element this rank owns; "
     "the iterative RefMaxwell metric cannot build their nullspace. Use apply = exact, or repartition.");
 
   coords = Teuchos::rcp(new CoordMV(nodal_map, dimension));

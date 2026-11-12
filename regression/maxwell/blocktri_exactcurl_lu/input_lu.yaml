@@ -3,14 +3,18 @@
 # Block triangular, exact-curl Schur; adjoint sweeps scale each split to its own RHS by default.
 ANONYMOUS:
   print timers: true
-  Mesh input file: input_direct.yaml
-  Physics input file: input_direct.yaml
-  Discretization input file: input_direct.yaml
-  Parameters input file: input_direct.yaml
-  Functions input file: input_direct.yaml
-  Solver input file: input_direct.yaml
-  Analysis input file: input_direct.yaml
-  Postprocess input file: input_direct.yaml
+  Mesh input file: ../blocktri_exactcurl_adjoint/input_direct.yaml
+  Physics input file: ../blocktri_exactcurl_adjoint/input_direct.yaml
+  Discretization input file: ../blocktri_exactcurl_adjoint/input_direct.yaml
+  Parameters input file: ../blocktri_exactcurl_adjoint/input_direct.yaml
+  Functions input file: ../blocktri_exactcurl_adjoint/input_direct.yaml
+  Solver input file: ../blocktri_exactcurl_adjoint/input_direct.yaml
+  Analysis input file: ../blocktri_exactcurl_adjoint/input_direct.yaml
+  Postprocess input file: ../blocktri_exactcurl_adjoint/input_direct.yaml
+  Analysis:
+    ROL2:
+      General:
+        FD Check Seed: 1
   Solver:
     use direct solver: false
     reuse Jacobian across sweeps: false
@@ -26,14 +30,14 @@ ANONYMOUS:
         E: 'E'
       schur target: E
       approximation type: exact-curl
-      exact-curl lower factor: true
+      triangle: full
       B:
         preconditioner: AMG
         inner krylov solver: 'Pseudo Block CG'
         inner krylov max iters: 100
         inner krylov tol: 1.0e-14
         AMG Settings:
-          xml param file: xml/pivot_jacobi.xml
+          xml param file: ../xml/pivot_jacobi.xml
       E:
         preconditioner: RefMaxwell
         inner krylov solver: 'Pseudo Block CG'
@@ -44,6 +48,6 @@ ANONYMOUS:
         hgrad basis order: 1
         hcurl basis order: 1
         RefMaxwell Settings:
-          xml param file: xml/refmaxwell_emin.xml
+          xml param file: ../xml/refmaxwell_emin.xml
           'filter SM': true
 ...

@@ -24,8 +24,8 @@ namespace MrHyDE {
     std::string krylov = "CG";        // CG or GMRES for apply iterative
     std::string prec = "RefMaxwell";  // RefMaxwell or Jacobi for apply iterative
     std::string xml;                  // MueLu list for RefMaxwell
-    int slabs_per_solve = 0;          // iterative apply: most time slabs per Krylov solve; 0 lets MrHyDE_ParamRiesz choose
-    int ranks = 0;                    // iterative apply: ranks holding the control rows; 0 means every rank, -1 keeps the mesh layout
+    int slabs_per_solve = 0;          // iterative apply: most time slabs per Krylov solve; 0 ('auto') lets MrHyDE_ParamRiesz choose
+    int ranks = 0;                    // iterative apply: ranks holding the control rows; 0 is 'all', -1 is 'mesh' (the mesh layout)
     Teuchos::RCP<Teuchos::ParameterList> belos;  // tolerance, iterations, Belos Settings
     std::string blocks;               // blank means every block
     std::string file;                 // blank means the operator is not written
@@ -45,8 +45,8 @@ namespace MrHyDE {
         krylov = iset.get<std::string>("solver", "CG");
         prec = iset.get<std::string>("preconditioner", "RefMaxwell");
         strict = iset.get<bool>("strict", false);
-        slabs_per_solve = iset.get<int>("slabs per solve", 0);
-        ranks = iset.get<int>("ranks", 0);
+        slabs_per_solve = countOrName(iset, "slabs per solve", {{"auto", 0}});
+        ranks = countOrName(iset, "ranks", {{"all", 0}, {"mesh", -1}});
         xml = iset.get<std::string>("xml param file", "");
         belos = Teuchos::rcp(new Teuchos::ParameterList("Belos"));
         belos->set("Convergence Tolerance",
@@ -59,6 +59,25 @@ namespace MrHyDE {
       semi_weight = block_prec::scalarParam(rset, "seminorm weight", 0.0);
       blocks = rset.get<std::string>("blocks", "");
       file = rset.get<std::string>("output file", "");
+    }
+
+    // A positive count or one of the names; absent means the first name.
+    static int countOrName(const Teuchos::ParameterList & list, const std::string & key,
+                           const std::vector<std::pair<std::string, int> > & names) {
+      if (!list.isParameter(key)) return names[0].second;
+      std::string allowed = "a positive count";
+      for (const auto & n : names) allowed += " or '" + n.first + "'";
+      if (list.isType<int>(key)) {
+        const int k = list.get<int>(key);
+        TEUCHOS_TEST_FOR_EXCEPTION(k < 1, std::runtime_error, "Riesz map: '" << key << "' must be " << allowed);
+        return k;
+      }
+      const std::string v = list.isType<std::string>(key) ? list.get<std::string>(key) : std::string();
+      for (const auto & n : names) {
+        if (v == n.first) return n.second;
+      }
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::runtime_error, "Riesz map: '" << key << "' must be " << allowed);
+      return names[0].second;
     }
   };
 

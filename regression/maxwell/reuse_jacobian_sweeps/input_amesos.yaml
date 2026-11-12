@@ -1,0 +1,16 @@
+%YAML 1.1
+---
+ANONYMOUS:
+  Mesh input file: input_off.yaml
+  Physics input file: input_off.yaml
+  Discretization input file: input_off.yaml
+  Parameters input file: input_off.yaml
+  Functions input file: input_off.yaml
+  Solver input file: input_off.yaml
+  Analysis input file: input_off.yaml
+  Postprocess input file: input_off.yaml
+  Solver:
+    Amesos2 Settings:
+      KLU2:
+        DebugLevel: 1
+...

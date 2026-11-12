@@ -2,7 +2,7 @@
 ---
 ANONYMOUS:
   debug level: 0
-  verbosity: 0
+  verbosity: 5
   print timers: true
   Mesh:
     dimension: 3
@@ -196,9 +196,10 @@ ANONYMOUS:
       apply: iterative
       Iterative Settings:
         preconditioner: RefMaxwell
-        xml param file: refmaxwell_metric.xml
+        xml param file: ../xml/refmaxwell_metric.xml
         tolerance: 1.0e-10
         strict: true
+        slabs per solve: auto
         Belos Settings:
           Verbosity: 9
   Analysis:

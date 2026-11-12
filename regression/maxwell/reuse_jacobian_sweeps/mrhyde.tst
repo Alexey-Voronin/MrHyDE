@@ -12,7 +12,8 @@ desc = ''' Direct solves with 'reuse Jacobian across sweeps' against the same de
 without it. The LQ Maxwell checks run forward, adjoint and both incremental sweeps,
 so the kept forward and adjoint factorizations are both reused; the exact-path
 numbers must not move. The mass run adds 'print mass', whose setup leaves a mass
-matrix in the state context that must not be kept as the Jacobian. '''
+matrix in the state context that must not be kept as the Jacobian. The amesos
+run passes 'Amesos2 Settings' through to KLU2 and must not move a number either. '''
 
 its = mrhyde_test_support(desc)
 
@@ -31,7 +32,7 @@ if its.opts.preprocess:
   status += its.call('echo "  No preprocessing, yet."')
 
 logs = {}
-for name in ('off', 'on', 'mass'):
+for name in ('off', 'on', 'mass', 'amesos'):
   log = 'mrhyde_%s.log' % name
   status += its.call('mpiexec -n 3 ../../mrhyde input_%s.yaml >& %s' % (name, log))
   its.clean_log(log)   # advisory IOSS filter; its sed call returns nonzero on BSD
@@ -90,7 +91,7 @@ status += check_predicates('mrhyde_on.log', checks, verbose=True)
 
 # Every run factors the same matrices, so a reused factorization changes nothing.
 a = _exact_numbers(logs['off'])
-for name in ('on', 'mass'):
+for name in ('on', 'mass', 'amesos'):
   b = _exact_numbers(logs[name])
   if len(a) != 32 or len(b) != len(a):
     print('FAIL  exact-path numbers: read %d and %d of 32' % (len(a), len(b)))
@@ -102,6 +103,11 @@ for name in ('on', 'mass'):
         % ('pass' if ok else 'FAIL', name, worst))
   if not ok:
     status += 1
+
+# 'Amesos2 Settings' reaches KLU2, which prints a header on every solve at DebugLevel 1.
+ok = '== Amesos2_KLU2::solve_impl ==' in logs['amesos']
+print('%s  Amesos2 Settings reached KLU2 (DebugLevel 1 solve header in the log)' % ('pass' if ok else 'FAIL'))
+status += 0 if ok else 1
 
 # Same pair, iterative: Jacobi draws no random start vector, so kept and rebuilt preconditioners agree.
 sys.path.append("../../../scripts/data_processing")
@@ -162,7 +168,7 @@ if its.opts.clean and not status:
   status += its.call('rm -f mrhyde_iter_off.log mrhyde_iter_on.log mrhyde_iter_bdf2.log')
 
 if its.opts.clean and not status:
-  status += its.call('rm -f mrhyde_off.log mrhyde_on.log mrhyde_mass.log')
+  status += its.call('rm -f mrhyde_off.log mrhyde_on.log mrhyde_mass.log mrhyde_amesos.log')
 
 # ==============================================================================
 if status == 0: print('Success.')

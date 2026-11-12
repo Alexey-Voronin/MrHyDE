@@ -10,7 +10,7 @@ from parse_log import timer_calls
 # ==============================================================================
 # Parsing input
 
-desc = ''' One block-LU pass per E-B solve ('exact-curl lower factor', inner CG on both splits,
+desc = ''' One block-LU pass per E-B solve ('triangle: full', inner CG on both splits,
 flexible Block GMRES) must take the direct solver's trust-region step in one outer iteration. '''
 
 its = mrhyde_test_support(desc)

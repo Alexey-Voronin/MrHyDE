@@ -29,18 +29,20 @@ inline bool anyBlockSettingsRequestsAuxiliary(const Teuchos::ParameterList & sol
 }
 
 // Build edge coordinates for MueLu distance-laplacian aggregation.
-template<class ScalarT, class LO, class GO, class Node, class GidCoordMap>
-Teuchos::RCP<Tpetra::MultiVector<typename Teuchos::ScalarTraits<ScalarT>::coordinateType,LO,GO,Node> >
+template<class ScalarT, class LO, class GO, class Node, class CoordMV>
+Teuchos::RCP<CoordMV>
 buildEdgeAveragedNodeCoords(const Teuchos::RCP<Tpetra::CrsMatrix<ScalarT,LO,GO,Node> > & D0_matrix,
                         const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > & edge_block_map,
-                        const GidCoordMap & gid_to_coords,
+                        const CoordMV & nodal_coords,
                         const int dimension) {
-  using CoordScalar = typename Teuchos::ScalarTraits<ScalarT>::coordinateType;
-  using CoordMV = Tpetra::MultiVector<CoordScalar,LO,GO,Node>;
+  using CoordScalar = typename CoordMV::scalar_type;
   using CrsMatrix = Tpetra::CrsMatrix<ScalarT,LO,GO,Node>;
+  CoordMV col_coords(D0_matrix->getColMap(), dimension);
+  col_coords.doImport(nodal_coords, Tpetra::Import<LO,GO,Node>(nodal_coords.getMap(), D0_matrix->getColMap()),
+                      Tpetra::INSERT);
+  auto cv = col_coords.getLocalViewHost(Tpetra::Access::ReadOnly);
   Teuchos::RCP<CoordMV> edge_coords = Teuchos::rcp(new CoordMV(edge_block_map, dimension));
   auto view = edge_coords->getLocalViewHost(Tpetra::Access::OverwriteAll);
-  const auto D0_col_map = D0_matrix->getColMap();
   typedef typename CrsMatrix::nonconst_local_inds_host_view_type host_inds_t;
   typedef typename CrsMatrix::nonconst_values_host_view_type    host_vals_t;
   const LO n_rows = static_cast<LO>(edge_block_map->getLocalNumElements());
@@ -51,17 +53,10 @@ buildEdgeAveragedNodeCoords(const Teuchos::RCP<Tpetra::CrsMatrix<ScalarT,LO,GO,N
     host_vals_t row_vals("d0_edge_row_vals", nent);
     D0_matrix->getLocalRowCopy(lid, col_lids, row_vals, nent);
     std::vector<double> acc(dimension, 0.0);
-    int found = 0;
     for (size_t j = 0; j < nent; ++j) {
-      const GO col_gid = D0_col_map->getGlobalElement(col_lids(j));
-      if (col_gid == Teuchos::OrdinalTraits<GO>::invalid()) continue;
-      auto it = gid_to_coords.find(col_gid);
-      if (it == gid_to_coords.end()) continue;
-      for (int d = 0; d < dimension; ++d) acc[d] += it->second[d];
-      ++found;
+      for (int d = 0; d < dimension; ++d) acc[d] += cv(col_lids(j), d);
     }
-    if (found == 0) continue;
-    const double inv = 1.0 / static_cast<double>(found);
+    const double inv = 1.0 / static_cast<double>(nent);
     for (int d = 0; d < dimension; ++d) {
       view(lid, d) = static_cast<CoordScalar>(acc[d] * inv);
     }
@@ -403,6 +398,8 @@ bool SolverManager<Node>::resolveAuxiliaryBases(const Teuchos::RCP<LinearSolverC
       hgrad_order = refmaxwellSetupList.template get<int>("hgrad basis order");
     if (refmaxwellSetupList.isParameter("hcurl basis order"))
       hcurl_order = refmaxwellSetupList.template get<int>("hcurl basis order");
+    if (refmaxwellSetupList.isParameter("periodic edge nullspace"))
+      bases.periodic_nullspace = refmaxwellSetupList.template get<bool>("periodic edge nullspace");
   } else if (needs_distance_laplacian_coords) {
     hgrad_basis = dl_hgrad_basis;
     hcurl_basis = dl_hcurl_basis;
@@ -701,102 +698,141 @@ void SolverManager<Node>::buildAuxiliaryNodalData(const size_t & set,
                                                  const size_t edgeBlock) {
   const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > nodal_map = cntxt->refMaxwell.D0_matrix->getDomainMap();
   const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > edge_block_map = blockMaps[edgeBlock];
-  const std::map<GO, std::vector<double> > gid_to_coords = this->computeAuxiliaryNodalData(
-    hgrad_dof, bases.hgrad_name, bases.hgrad_order, nodal_map,
-    cntxt->refMaxwell.nodal_coords, cntxt->refMaxwell.nodal_lumped_mass);
+  this->computeAuxiliaryNodalData(hgrad_dof, bases.hgrad_name, bases.hgrad_order, nodal_map,
+                                  cntxt->refMaxwell.nodal_coords, cntxt->refMaxwell.nodal_lumped_mass);
 
   if (cntxt->block.dof_coords.size() != blockMaps.size()) {
     cntxt->block.dof_coords.assign(blockMaps.size(), Teuchos::null);
   }
   auto edge_coords = buildEdgeAveragedNodeCoords<ScalarT,LO,GO,Node>(
-    cntxt->refMaxwell.D0_matrix, edge_block_map, gid_to_coords, dimension);
-  cntxt->block.dof_coords[edgeBlock] = edge_coords;
-  debugger->print("**** setupBlockTriangularAuxiliary: populated block.dof_coords[edgeBlock=" +
-                  std::to_string(edgeBlock) + "] length " +
-                  std::to_string(edge_coords->getGlobalLength()));
+    cntxt->refMaxwell.D0_matrix, edge_block_map, *cntxt->refMaxwell.nodal_coords, dimension);
 
-  // MueLu's own D0 times coords wraps across a periodic face; left null if an owned edge has no owned element.
+  // A periodic node has one coordinate for both faces, so D0 times coords and the edge averages wrap there;
+  // both come from each element's own nodes instead. No nullspace with the flag off or if an owned edge has no owned element.
   if (settings->sublist("Mesh").isSublist("Periodic BCs")) {
-    GO unreached = 0;
-    const vector_RCP nullspace = this->buildEdgeNullspace(cntxt->refMaxwell.D0_matrix, hgrad_dof,
+    EdgeNullspaceOutputs<Node> out;
+    out.row_coords = edge_coords.getRawPtr();
+    const EdgeNullspace<Node> ens = this->buildEdgeNullspace(cntxt->refMaxwell.D0_matrix, hgrad_dof,
+      bases.hgrad_name, bases.hgrad_order,
       [&](const size_t b, const LO elem, std::vector<GO> & gids) {
         const std::vector<GO> all = disc->getGIDs(set, b, elem);
         gids.clear();
         for (const int off : disc->offsets[set][b][edgeBlock]) gids.push_back(all[off]);
-      }, unreached);
-    if (unreached == 0) cntxt->refMaxwell.edge_nullspace = nullspace;
+      }, out);
+    if (ens.unreached == 0 && bases.periodic_nullspace) cntxt->refMaxwell.edge_nullspace = ens.nullspace;
   }
-
-
-
+  cntxt->block.dof_coords[edgeBlock] = edge_coords;
+  debugger->print("**** setupBlockTriangularAuxiliary: populated block.dof_coords[edgeBlock=" +
+                  std::to_string(edgeBlock) + "] length " +
+                  std::to_string(edge_coords->getGlobalLength()));
 }
 
 // ========================================================================================
 // ========================================================================================
 
-// Constant fields as edge vectors, each row D0 times one element's own node coordinates, which
-// stay unwrapped across a periodic face; unreached counts owned rows no owned element touches.
+// Constant fields as edge vectors, each row D0 times one element's own H(grad) DOF coordinates, which
+// stay unwrapped across a periodic face.
 template<class Node>
 template<class EdgeGids>
-typename SolverManager<Node>::vector_RCP
+EdgeNullspace<Node>
 SolverManager<Node>::buildEdgeNullspace(const matrix_RCP & D0,
                                         const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
+                                        const std::string & hgrad_name,
+                                        const int hgrad_order,
                                         const EdgeGids & edgeGids,
-                                        GO & unreached,
-                                        std::map<GO, std::vector<double> > * gid_to_coords) {
+                                        const EdgeNullspaceOutputs<Node> & out) {
+  typedef Intrepid2::CellTools<PHX::Device::execution_space> AuxCellTools;
   const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > rows = D0->getRowMap();
   const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > cols = D0->getColMap();
+  const size_t n_rows = rows->getLocalNumElements();
   vector_RCP nullspace = Teuchos::rcp(new LA_MultiVector(rows, dimension));
-  std::vector<bool> done(rows->getLocalNumElements(), false);
+  std::vector<bool> done(n_rows, false);
+  std::vector<double> row_mean(out.row_coords != nullptr ? n_rows * dimension : 0, 0.0);
+  std::vector<bool> have_mean(n_rows, false);
   {
     auto ns = nullspace->getLocalViewHost(Tpetra::Access::ReadWrite);
     auto lcl = D0->getLocalMatrixHost();
-    std::vector<GO> node_gids, edge_gids;
+    std::vector<GO> elem_gids, dof_gids, edge_gids;
     for (size_t b = 0; b < mesh->block_names.size(); ++b) {
+      const std::string & block_name = mesh->block_names[b];
       const size_t num_elem = disc->my_elements[b].extent(0);
       if (num_elem == 0) continue;
       vector<size_t> elem_ids(num_elem);
       for (size_t e = 0; e < num_elem; ++e) elem_ids[e] = disc->my_elements[b](e);
-      DRV elem_nodes = mesh->getMyNodes(b, elem_ids);
-      auto nodes_h = Kokkos::create_mirror_view(elem_nodes);
-      Kokkos::deep_copy(nodes_h, elem_nodes);
+      DRV pts = mesh->getMyNodes(b, elem_ids);
+      // Above order 1 the DOFs sit off the vertices, and Panzer orders a field's GIDs by entity, not by basis index.
+      std::vector<int> offs;
+      if (hgrad_order > 1) {
+        const basis_RCP basis = disc->getBasis(dimension, mesh->cell_topo[b], "HGRAD", hgrad_order);
+        DRV ref("hgrad dof pts", basis->getCardinality(), dimension);
+        basis->getDofCoords(ref);
+        DRV phys("hgrad phys dof pts", num_elem, basis->getCardinality(), dimension);
+        AuxCellTools::mapToPhysicalFrame(phys, ref, pts, *(mesh->cell_topo[b]));
+        pts = phys;
+        offs = hgrad_dof->getGIDFieldOffsets(block_name, hgrad_dof->getFieldNum(hgrad_name));
+      }
+      auto pts_h = Kokkos::create_mirror_view(pts);
+      Kokkos::deep_copy(pts_h, pts);
       for (size_t e = 0; e < num_elem; ++e) {
         const LO elem = disc->my_elements[b](e);
-        hgrad_dof->getElementGIDs(elem, node_gids, mesh->block_names[b]);
+        hgrad_dof->getElementGIDs(elem, elem_gids, block_name);
+        dof_gids.clear();
+        if (offs.empty()) {
+          dof_gids.assign(elem_gids.begin(),
+                          elem_gids.begin() + std::min(static_cast<size_t>(pts_h.extent(1)), elem_gids.size()));
+        }
+        for (const int off : offs) dof_gids.push_back(elem_gids[off]);
+        const size_t npts = dof_gids.size();
         edgeGids(b, elem, edge_gids);
-        const size_t nmax = std::min(static_cast<size_t>(nodes_h.extent(1)), node_gids.size());
-        for (size_t n = 0; gid_to_coords != nullptr && n < nmax; ++n) {
+        for (size_t n = 0; out.dof_coords != nullptr && n < npts; ++n) {
           std::vector<double> coord(dimension);
-          for (int d = 0; d < dimension; ++d) coord[d] = nodes_h(e, n, d);
-          keepLowestImage(*gid_to_coords, node_gids[n], coord);
+          for (int d = 0; d < dimension; ++d) coord[d] = pts_h(e, n, d);
+          keepLowestImage(*out.dof_coords, dof_gids[n], coord);
         }
         for (const GO gid : edge_gids) {
           const LO lid = rows->getLocalElement(gid);
           if (lid == Teuchos::OrdinalTraits<LO>::invalid() || done[lid]) continue;
           const auto row = lcl.row(lid);
+          std::vector<double> acc(dimension, 0.0);
+          int found = 0;
           for (LO k = 0; k < row.length; ++k) {
             const GO ngid = cols->getGlobalElement(row.colidx(k));
-            const size_t n = std::find(node_gids.begin(), node_gids.begin() + nmax, ngid) - node_gids.begin();
-            if (n == nmax) continue;
-            for (int d = 0; d < dimension; ++d) ns(lid, d) += row.value(k) * nodes_h(e, n, d);
+            const size_t n = std::find(dof_gids.begin(), dof_gids.end(), ngid) - dof_gids.begin();
+            if (n == npts) continue;
+            for (int d = 0; d < dimension; ++d) {
+              ns(lid, d) += row.value(k) * pts_h(e, n, d);
+              acc[d] += pts_h(e, n, d);
+            }
+            ++found;
           }
+          for (int d = 0; !row_mean.empty() && found > 0 && d < dimension; ++d) {
+            row_mean[lid * dimension + d] = acc[d] * (1.0 / static_cast<double>(found));
+          }
+          have_mean[lid] = found > 0;
           done[lid] = true;
         }
       }
     }
   }
+  if (out.row_coords != nullptr) {
+    auto rc = out.row_coords->getLocalViewHost(Tpetra::Access::ReadWrite);
+    for (size_t lid = 0; lid < n_rows; ++lid) {
+      for (int d = 0; have_mean[lid] && d < dimension; ++d) rc(lid, d) = row_mean[lid * dimension + d];
+    }
+  }
   GO missing = std::count(done.begin(), done.end(), false);
-  Teuchos::reduceAll<int, GO>(*(rows->getComm()), Teuchos::REDUCE_SUM, 1, &missing, &unreached);
-  return nullspace;
+  EdgeNullspace<Node> result;
+  result.nullspace = nullspace;
+  Teuchos::reduceAll<int, GO>(*(rows->getComm()), Teuchos::REDUCE_SUM, 1, &missing, &result.unreached);
+  return result;
 }
 
 // ========================================================================================
 // ========================================================================================
 
-// Coordinates and lumped mass of the H(grad) DOFs on nodal_map; returns GID to coordinates.
+// Coordinates and lumped mass of the H(grad) DOFs on nodal_map.
 template<class Node>
-std::map<GO, std::vector<double> >
-SolverManager<Node>::computeAuxiliaryNodalData(const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
+void SolverManager<Node>::computeAuxiliaryNodalData(const Teuchos::RCP<panzer::DOFManager> & hgrad_dof,
                                                const std::string & hgrad_name,
                                                const int hgrad_order,
                                                const Teuchos::RCP<const Tpetra::Map<LO,GO,Node> > & nodal_map,
@@ -820,7 +856,7 @@ SolverManager<Node>::computeAuxiliaryNodalData(const Teuchos::RCP<panzer::DOFMan
   mass_og->putScalar(0.0);
   auto mass_og_view = mass_og->getLocalViewHost(Tpetra::Access::ReadWrite);
 
-  std::map<GO, std::vector<double> > gid_to_coords, lowest;
+  std::map<GO, std::vector<double> > lowest;
   for (size_t block = 0; block < mesh->block_names.size(); ++block) {
     const std::string block_name = mesh->block_names[block];
     const size_t num_elem = disc->my_elements[block].extent(0);
@@ -873,7 +909,6 @@ SolverManager<Node>::computeAuxiliaryNodalData(const Teuchos::RCP<panzer::DOFMan
           const GO gid = elem_dofs[offs[i]];
           std::vector<double> coord(dimension, 0.0);
           for (int d = 0; d < dimension; ++d) coord[d] = phys_h(e, i, d);
-          gid_to_coords.emplace(gid, coord);
           keepLowestImage(lowest, gid, coord);
           const LO og_lid = og_map->getLocalElement(gid);
           if (og_lid == Teuchos::OrdinalTraits<LO>::invalid()) continue;
@@ -893,7 +928,6 @@ SolverManager<Node>::computeAuxiliaryNodalData(const Teuchos::RCP<panzer::DOFMan
       for (size_t n = 0; n < elem_dofs.size() && n < num_nodes; ++n) {
         std::vector<double> coord(dimension, 0.0);
         for (int d = 0; d < dimension; ++d) coord[d] = nodes_h(e, n, d);
-        gid_to_coords.emplace(elem_dofs[n], coord);
         keepLowestImage(lowest, elem_dofs[n], coord);
         const LO og_lid = og_map->getLocalElement(elem_dofs[n]);
         if (og_lid == Teuchos::OrdinalTraits<LO>::invalid()) continue;
@@ -923,7 +957,7 @@ SolverManager<Node>::computeAuxiliaryNodalData(const Teuchos::RCP<panzer::DOFMan
 
   GO missing_coords = 0;
   for (LO lid = 0; lid < static_cast<LO>(nodal_map->getLocalNumElements()); ++lid) {
-    if (gid_to_coords.find(nodal_map->getGlobalElement(lid)) == gid_to_coords.end()) ++missing_coords;
+    if (lowest.find(nodal_map->getGlobalElement(lid)) == lowest.end()) ++missing_coords;
   }
   {
     // Nodes left at the origin would silently corrupt distance-based aggregation.
@@ -934,7 +968,6 @@ SolverManager<Node>::computeAuxiliaryNodalData(const Teuchos::RCP<panzer::DOFMan
       "RefMaxwell setup: " << global_missing << " nodes have no coordinates.");
   }
   fillFromLowestImage<LO,GO,Node>(lowest, *coords);
-  return gid_to_coords;
 }
 
 // ========================================================================================
@@ -1208,14 +1241,8 @@ vector<bool> SolverManager<Node>::resolveParamRieszMetric() {
                                 params->discretized_param_basis_types[params->discretized_param_usebasis[0]].substr(0,5) != "HCURL"),
                                std::runtime_error,
                                "Riesz map: RefMaxwell needs exactly one HCURL discretized parameter");
-    TEUCHOS_TEST_FOR_EXCEPTION(param_riesz.slabs_per_solve < 0, std::runtime_error,
-                               "Riesz map: slabs per solve must be 0 (automatic) or positive");
-    TEUCHOS_TEST_FOR_EXCEPTION(param_riesz.ranks < -1, std::runtime_error,
-                               "Riesz map: ranks must be -1 (mesh layout), 0 (automatic) or positive");
-    if (param_riesz.krylov == "GMRES" && param_riesz.slabs_per_solve > 1 && verbosity >= 5 && Comm->getRank() == 0) {
-      std::cout << "WARNING: Riesz map: slabs per solve is ignored with GMRES, which solves one slab at a time"
-                << std::endl;
-    }
+    TEUCHOS_TEST_FOR_EXCEPTION(param_riesz.krylov == "GMRES" && param_riesz.slabs_per_solve > 1, std::runtime_error,
+                               "Riesz map: 'slabs per solve' above 1 needs solver CG; GMRES solves one slab at a time.");
   }
   
   vector<bool> include_block(blocknames.size(), false);

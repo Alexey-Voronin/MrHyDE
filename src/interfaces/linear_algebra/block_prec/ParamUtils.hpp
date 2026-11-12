@@ -210,7 +210,7 @@ inline const std::vector<std::string> & mrhydeOwnedKeys() {
     "preconditioner type", "preconditioner variant", "preconditioner",
     "use mass matrix", "xml param file",
     "hgrad basis name", "hcurl basis name",
-    "hgrad basis order", "hcurl basis order",
+    "hgrad basis order", "hcurl basis order", "periodic edge nullspace",
     "inner krylov solver", "inner krylov max iters", "inner krylov tol",
     "approximation type", "mass scale",
     "triangle", "damping",
