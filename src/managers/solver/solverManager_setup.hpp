@@ -1165,6 +1165,11 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
     riesz = this->buildIterativeParamRiesz(assembled_diag);
   }
   
+  TEUCHOS_TEST_FOR_EXCEPTION(param_riesz.temporal_modes < 0 || (param_riesz.temporal_modes > 0 && riesz.is_null()),
+                             std::runtime_error,
+                             "Error: Solver->'Parameter Riesz map'->'temporal modes' must be >= 0 and needs apply "
+                             "exact or iterative.");
+  if (!riesz.is_null()) { riesz->setTemporalModes(param_riesz.temporal_modes); }
   params->setParamMass(diagParamMass, riesz);
   
   if (verbosity >= 5 && Comm->getRank() == 0) {

@@ -26,6 +26,7 @@ namespace MrHyDE {
     std::string xml;                  // MueLu list for RefMaxwell
     int slabs_per_solve = 0;          // iterative apply: most time slabs per Krylov solve; 0 lets MrHyDE_ParamRiesz choose
     int ranks = 0;                    // iterative apply: ranks holding the control rows; 0 means every rank, -1 keeps the mesh layout
+    int temporal_modes = 0;           // keep the first temporal_modes DCT-II modes over the slabs; 0 keeps all
     Teuchos::RCP<Teuchos::ParameterList> belos;  // tolerance, iterations, Belos Settings
     std::string blocks;               // blank means every block
     std::string file;                 // blank means the operator is not written
@@ -37,6 +38,7 @@ namespace MrHyDE {
       apply = rset.get<std::string>("apply", present ? "exact" : "diagonal");
       solver = rset.get<std::string>("direct solver", "KLU2");
       drop_zeros = rset.get<bool>("drop explicit zeros", false);
+      temporal_modes = rset.get<int>("temporal modes", 0);
       strict = false;
       slabs_per_solve = 0;
       ranks = 0;

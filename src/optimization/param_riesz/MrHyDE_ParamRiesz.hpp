@@ -14,6 +14,8 @@
 #include "Amesos2.hpp"
 #include <BelosSolverFactory.hpp>
 #include <BelosTpetraAdapter.hpp>
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 
 // P maps primal to dual and P^-1 back. ROL's default precond is v.dual(),
@@ -45,6 +47,10 @@ public:
     to_live = Teuchos::rcp(new Tpetra::Import<LO,GO,SolverNode>(P->getRowMap(), P_live->getRowMap()));
     rank = P_live->getRowMap()->getComm()->getRank();
   }
+
+  // P^-1 then keeps the first n DCT-II modes in time of every row, a Galerkin restriction of the control; 0 keeps all.
+  void setTemporalModes(const int n) { temporal_modes = n; }
+  int getTemporalModes() const { return temporal_modes; }
 
   // y <- P x
   void apply(const vector_RCP & x, const vector_RCP & y) const {
@@ -90,9 +96,44 @@ public:
       for (size_t s = s0; s < s0 + nb && !done; ++s) { this->applyInverse(bx[s], by[s]); }
       s0 += nb;
     }
+    this->lowPass(ys);
   }
 
 private:
+
+  // ys <- (Phi Phi^T kron I) ys, with Phi the first temporal_modes orthonormal DCT-II columns over the slabs.
+  void lowPass(const std::vector<vector_RCP> & ys) const {
+    const size_t N = ys.size(), K = std::min(static_cast<size_t>(std::max(temporal_modes, 0)), N);
+    if (K == 0 || K == N) { return; }
+    if (phi.size() != N*K) {
+      phi.resize(N*K);
+      const ScalarT pi = std::acos(-1.0);
+      for (size_t s = 0; s < N; ++s) {
+        for (size_t k = 0; k < K; ++k) {
+          phi[s*K + k] = std::sqrt((k == 0 ? 1.0 : 2.0)/N) * std::cos(pi*k*(s + 0.5)/N);
+        }
+      }
+    }
+    std::vector<decltype(ys[0]->getLocalViewHost(Tpetra::Access::ReadWrite))> v;
+    for (const vector_RCP & y : ys) { v.push_back(y->getLocalViewHost(Tpetra::Access::ReadWrite)); }
+    std::vector<ScalarT> c(K);
+    for (size_t j = 0; j < v[0].extent(1); ++j) {
+      for (size_t i = 0; i < v[0].extent(0); ++i) {
+        bool zero = true;
+        for (size_t s = 0; s < N && zero; ++s) { zero = (v[s](i,j) == 0.0); }
+        if (zero) { continue; }
+        std::fill(c.begin(), c.end(), 0.0);
+        for (size_t s = 0; s < N; ++s) {
+          for (size_t k = 0; k < K; ++k) { c[k] += phi[s*K + k]*v[s](i,j); }
+        }
+        for (size_t s = 0; s < N; ++s) {
+          ScalarT a = 0.0;
+          for (size_t k = 0; k < K; ++k) { a += phi[s*K + k]*c[k]; }
+          v[s](i,j) = a;
+        }
+      }
+    }
+  }
 
   static bool allZero(const LA_MultiVector & x) {
     Teuchos::Array<typename LA_MultiVector::mag_type> nrm(x.getNumVectors());
@@ -161,6 +202,8 @@ private:
   size_t slab_cap = 1;                           // most slabs per Krylov solve
   static constexpr size_t max_auto_slabs = 8;    // most slabs per solve when the deck sets none
   int rank = 0;
+  int temporal_modes = 0;
+  mutable std::vector<ScalarT> phi;              // slabs x temporal_modes DCT-II basis, built on first use
   mutable bool warned = false;
   mutable vector_RCP b_work, z_work;   // control-row RHS and solution, reused across applies
   vector_RCP inv_diag;

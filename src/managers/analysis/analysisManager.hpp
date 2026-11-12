@@ -21,6 +21,7 @@
 #include "postprocessManager.hpp"
 #include "parameterManager.hpp"
 #include "MrHyDE_Debugger.hpp"
+#include "ROL_Objective.hpp"
 
 namespace MrHyDE {
 
@@ -114,6 +115,12 @@ public:
                           const Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode> > & Hop,
                           const string & prefix, const int & neig,
                           const int & ctrl_dim, const bool & hermitian);
+
+  // PCG on H s = -g in the metric of the parameter vector, with optional reorthogonalization and shifts.
+  void hessianKrylov(Teuchos::ParameterList & kset,
+                     const Teuchos::RCP<ROL::Objective<ScalarT> > & obj,
+                     const Teuchos::RCP<ROL::Vector<ScalarT> > & x,
+                     const ScalarT & J0, const ScalarT & tol);
 
   /** @brief Perform stochastic optimization using ROL. */
   void ROLStochSolve();

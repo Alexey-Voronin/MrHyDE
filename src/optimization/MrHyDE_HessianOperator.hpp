@@ -30,6 +30,10 @@ public:
                          const Teuchos::RCP<MrHyDE_ParamRiesz> & riesz)
   : obj_(obj), x_(x), param_map_(param_map), fd_step_(fd_step), riesz_(riesz) {
 
+    TEUCHOS_TEST_FOR_EXCEPTION(!riesz_.is_null() && riesz_->getTemporalModes() > 0, std::runtime_error,
+                               "Error: the Hessian eigenvalue and probe analyses apply P^-1 slab by slab, which "
+                               "skips 'temporal modes'; use Analysis->Hessian->Krylov.");
+
     v_  = x->clone();
     hv_ = x->clone();
     vf_  = Teuchos::dyn_cast<MrHyDE_OptVector>(*v_).getField();
