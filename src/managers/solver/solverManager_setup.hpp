@@ -312,7 +312,8 @@ void SolverManager<Node>::assembleAuxiliaryMass(const size_t & set,
                                solverList.get<bool>("matrix free", false), std::runtime_error,
       "Auxiliary setup needs an assembled M1: disable sparse mass, lumping, matrix-free.");
   }
-  assembler->getWeightedMass(set, M1_over, diagM1_over);
+  // The check above rules out matrix-free, the only reader of stored element mass.
+  assembler->getWeightedMass(set, M1_over, diagM1_over, /*use_unit_weights=*/ false, /*store_element_mass=*/ false);
 
   assembled_mass_matrix = linalg->getNewMatrix(set);
   linalg->exportMatrixFromOverlapped(set, assembled_mass_matrix, M1_over);

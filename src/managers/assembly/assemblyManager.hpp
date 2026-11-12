@@ -187,9 +187,10 @@ public:
    * @param set Index of the set for which to compute the weighted mass.
    * @param mass Reference-counted pointer to the mass matrix to be filled.
    * @param massdiag Reference-counted pointer to the vector storing the diagonal of the mass matrix.
+   * @param store_element_mass Keep the element blocks for the matrix-free path, its only reader.
    */
   void getWeightedMass(const size_t & set, matrix_RCP & mass, vector_RCP & massdiag,
-                       const bool use_unit_weights = false);
+                       const bool use_unit_weights = false, const bool store_element_mass = true);
 
   /**
    * @brief Compute the parameter mass matrix and its diagonal.
@@ -2011,11 +2012,12 @@ CompressedView<View_Sc3> getMass(const int & block, const size_t & grp);
  * @param block     Block index.
  * @param grp       Group index.
  * @param masswts   Vector of scalar weights applied to each mass entry.
+ * @param store     Keep the blocks in the group if it stores mass.
  *
  * @return Compressed mass matrix with weights applied.
  */
 CompressedView<View_Sc3> getWeightedMass(const int & block, const size_t & grp,
-                                         vector<ScalarT> & masswts);
+                                         vector<ScalarT> & masswts, const bool store = true);
 
 /**
  * @brief Retrieve mass matrix associated with parameters.

@@ -46,6 +46,10 @@ void SolverManager<Node>::projectDirichlet(const size_t & set) {
     // explicitly in the input file for now (State boundary L2 linear solver)
     linalg->linearSolverBoundaryL2(set, glmass, glrhs, glfixedDOF_soln);
     linalg->importVectorToOverlapped(set, fixedDOF_soln[set], glfixedDOF_soln);
+    // Static data is projected once, so the boundary matrix the context keeps is never read again.
+    if (staticDirichletData[set]) {
+      linalg->context_BndryL2[set]->reset();
+    }
     
   }
   

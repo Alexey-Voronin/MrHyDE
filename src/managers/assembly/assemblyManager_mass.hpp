@@ -13,7 +13,8 @@ template<class Node>
 void AssemblyManager<Node>::getWeightedMass(const size_t & set,
                                             matrix_RCP & mass,
                                             vector_RCP & diagMass,
-                                            const bool use_unit_weights) {
+                                            const bool use_unit_weights,
+                                            const bool store_element_mass) {
   
   Teuchos::TimeMonitor localtimer(*set_init_timer);
   
@@ -121,7 +122,7 @@ void AssemblyManager<Node>::getWeightedMass(const size_t & set,
       }
       else {
         auto & wts = use_unit_weights ? unit_wts : physics->mass_wts[set][block];
-        auto localmass = this->getWeightedMass(block, grp, wts);
+        auto localmass = this->getWeightedMass(block, grp, wts, store_element_mass);
       
         if (data_avail) {
         
@@ -1202,7 +1203,8 @@ CompressedView<View_Sc3> AssemblyManager<Node>::getParamRiesz(const int & block,
 ///////////////////////////////////////////////////////////////////////////////////////
 
 template<class Node>
-CompressedView<View_Sc3> AssemblyManager<Node>::getWeightedMass(const int & block, const size_t & grp, vector<ScalarT> & masswts) {
+CompressedView<View_Sc3> AssemblyManager<Node>::getWeightedMass(const int & block, const size_t & grp, vector<ScalarT> & masswts,
+                                                                 const bool store) {
   
   size_t set = wkset[block]->current_set;
   auto numDOF = groupData[block]->num_dof;
@@ -1271,7 +1273,7 @@ CompressedView<View_Sc3> AssemblyManager<Node>::getWeightedMass(const int & bloc
   
   }
   
-  if (groups[block][grp]->storeMass) {
+  if (store && groups[block][grp]->storeMass) {
     // This assumes they are computed in order
     groups[block][grp]->local_mass.push_back(mass);
   }
