@@ -250,7 +250,7 @@ Teuchos::RCP<MrHyDE_ParamRiesz> SolverManager<Node>::buildIterativeParamRiesz(co
   }
 
   debugger->print("**** Finished SolverManager::buildIterativeParamRiesz()");
-  return Teuchos::rcp(new MrHyDE_ParamRiesz(paramMass, P_live, diagParamMass, prec, param_riesz, verbosity));
+  return Teuchos::rcp(new MrHyDE_ParamRieszIterative(paramMass, P_live, diagParamMass, prec, param_riesz, verbosity));
 }
 
 // ========================================================================================

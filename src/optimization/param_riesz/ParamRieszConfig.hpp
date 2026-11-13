@@ -24,7 +24,7 @@ namespace MrHyDE {
     std::string krylov = "CG";        // CG or GMRES for apply iterative
     std::string prec = "RefMaxwell";  // RefMaxwell or Jacobi for apply iterative
     std::string xml;                  // MueLu list for RefMaxwell
-    int slabs_per_solve = 0;          // iterative apply: most time slabs per Krylov solve; 0 ('auto') lets MrHyDE_ParamRiesz choose
+    int slabs_per_solve = 0;          // iterative apply: most time slabs per Krylov solve; 0 is 'auto', see slabCap
     int ranks = 0;                    // iterative apply: ranks holding the control rows; 0 is 'all', -1 is 'mesh' (the mesh layout)
     int hgrad_order = 0;              // iterative apply: order of RefMaxwell's H(grad) space; 0 is 'control', the control's order
     Teuchos::RCP<Teuchos::ParameterList> belos;  // tolerance, iterations, Belos Settings
@@ -48,6 +48,8 @@ namespace MrHyDE {
         prec = iset.get<std::string>("preconditioner", "RefMaxwell");
         strict = iset.get<bool>("strict", false);
         slabs_per_solve = countOrName(iset, "slabs per solve", {{"auto", 0}});
+        TEUCHOS_TEST_FOR_EXCEPTION(krylov == "GMRES" && slabs_per_solve > 1, std::runtime_error,
+                                   "Riesz map: 'slabs per solve' above 1 needs solver CG; GMRES solves one slab at a time.");
         ranks = countOrName(iset, "ranks", {{"all", 0}, {"mesh", -1}});
         hgrad_order = countOrName(iset, "hgrad order", {{"control", 0}});
         xml = iset.get<std::string>("xml param file", "");
@@ -62,6 +64,11 @@ namespace MrHyDE {
       semi_weight = block_prec::scalarParam(rset, "seminorm weight", 0.0);
       blocks = rset.get<std::string>("blocks", "");
       file = rset.get<std::string>("output file", "");
+    }
+
+    // Most slabs per Krylov solve: one for GMRES, up to 8 for 'auto'.
+    size_t slabCap() const {
+      return krylov == "GMRES" ? 1 : (slabs_per_solve > 0 ? static_cast<size_t>(slabs_per_solve) : 8);
     }
 
     // A positive count or one of the names; absent means the first name.

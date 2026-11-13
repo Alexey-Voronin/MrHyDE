@@ -21,6 +21,8 @@
 #include "linearAlgebraInterface.hpp"
 #include "block_prec/CrsFilter.hpp"
 #include "param_riesz/ParamRieszConfig.hpp"
+#include "param_riesz/MrHyDE_ParamRieszExact.hpp"
+#include "param_riesz/MrHyDE_ParamRieszIterative.hpp"
 #include "MrHyDE_Debugger.hpp"
 
 // For auxiliary-space setup on HCURL block.

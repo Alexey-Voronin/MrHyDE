@@ -1193,7 +1193,7 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
         block_prec::detail::DropExactZeros());
       dropped_zeros = paramMass->getGlobalNumEntries() - factored->getGlobalNumEntries();
     }
-    riesz = Teuchos::rcp(new MrHyDE_ParamRiesz(paramMass, param_riesz.solver, factored));
+    riesz = Teuchos::rcp(new MrHyDE_ParamRieszExact(paramMass, param_riesz.solver, factored));
   }
   else if (param_riesz.apply == "iterative") {
     riesz = this->buildIterativeParamRiesz(assembled_diag);
@@ -1242,8 +1242,6 @@ vector<bool> SolverManager<Node>::resolveParamRieszMetric() {
                                 params->discretized_param_basis_types[params->discretized_param_usebasis[0]].substr(0,5) != "HCURL"),
                                std::runtime_error,
                                "Riesz map: RefMaxwell needs exactly one HCURL discretized parameter");
-    TEUCHOS_TEST_FOR_EXCEPTION(param_riesz.krylov == "GMRES" && param_riesz.slabs_per_solve > 1, std::runtime_error,
-                               "Riesz map: 'slabs per solve' above 1 needs solver CG; GMRES solves one slab at a time.");
   }
   
   vector<bool> include_block(blocknames.size(), false);
