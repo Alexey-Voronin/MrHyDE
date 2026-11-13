@@ -26,6 +26,7 @@ namespace MrHyDE {
     std::string xml;                  // MueLu list for RefMaxwell
     int slabs_per_solve = 0;          // iterative apply: most time slabs per Krylov solve; 0 ('auto') lets MrHyDE_ParamRiesz choose
     int ranks = 0;                    // iterative apply: ranks holding the control rows; 0 is 'all', -1 is 'mesh' (the mesh layout)
+    int hgrad_order = 0;              // iterative apply: order of RefMaxwell's H(grad) space; 0 is 'control', the control's order
     Teuchos::RCP<Teuchos::ParameterList> belos;  // tolerance, iterations, Belos Settings
     std::string blocks;               // blank means every block
     std::string file;                 // blank means the operator is not written
@@ -40,6 +41,7 @@ namespace MrHyDE {
       strict = false;
       slabs_per_solve = 0;
       ranks = 0;
+      hgrad_order = 0;
       if (apply == "iterative") {
         Teuchos::ParameterList & iset = rset.sublist("Iterative Settings");
         krylov = iset.get<std::string>("solver", "CG");
@@ -47,6 +49,7 @@ namespace MrHyDE {
         strict = iset.get<bool>("strict", false);
         slabs_per_solve = countOrName(iset, "slabs per solve", {{"auto", 0}});
         ranks = countOrName(iset, "ranks", {{"all", 0}, {"mesh", -1}});
+        hgrad_order = countOrName(iset, "hgrad order", {{"control", 0}});
         xml = iset.get<std::string>("xml param file", "");
         belos = Teuchos::rcp(new Teuchos::ParameterList("Belos"));
         belos->set("Convergence Tolerance",

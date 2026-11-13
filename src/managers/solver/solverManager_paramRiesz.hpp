@@ -266,6 +266,9 @@ void SolverManager<Node>::buildParamGradient(matrix_RCP & D0,
   using CoordMV = Tpetra::MultiVector<typename Teuchos::ScalarTraits<ScalarT>::coordinateType,LO,GO,Node>;
   const Teuchos::RCP<const Map> pmap = paramMass->getRowMap();
   const int porder = params->discretized_param_basis_orders[params->discretized_param_usebasis[0]];
+  const int hgrad_order = (param_riesz.hgrad_order == 0) ? porder : param_riesz.hgrad_order;
+  TEUCHOS_TEST_FOR_EXCEPTION(hgrad_order > porder, std::runtime_error,
+    "Riesz map: 'hgrad order' " << hgrad_order << " is above the control's order " << porder << ".");
   const std::string hgrad_name = "riesz_hgrad", hcurl_name = "riesz_hcurl";
 
   Teuchos::RCP<panzer::ConnManager> conn = mesh->getSTKConnManager();
@@ -279,7 +282,7 @@ void SolverManager<Node>::buildParamGradient(matrix_RCP & D0,
     std::string block_name = mesh->block_names[block];
     topo_RCP cellTopo = mesh->getCellTopology(block_name);
     hgrad_dof->addField(block_name, hgrad_name, Teuchos::rcp(new panzer::Intrepid2FieldPattern(
-      disc->getBasis(dimension, cellTopo, "HGRAD", 1))), panzer::FieldType::CG);
+      disc->getBasis(dimension, cellTopo, "HGRAD", hgrad_order))), panzer::FieldType::CG);
     hcurl_dof->addField(block_name, hcurl_name, Teuchos::rcp(new panzer::Intrepid2FieldPattern(
       disc->getBasis(dimension, cellTopo, "HCURL", porder))), panzer::FieldType::CG);
   }
@@ -356,7 +359,7 @@ void SolverManager<Node>::buildParamGradient(matrix_RCP & D0,
   std::map<GO, std::vector<double> > gid_to_coords;
   EdgeNullspaceOutputs<Node> out;
   out.dof_coords = &gid_to_coords;
-  const EdgeNullspace<Node> ens = this->buildEdgeNullspace(D0, hgrad_dof, hgrad_name, 1,
+  const EdgeNullspace<Node> ens = this->buildEdgeNullspace(D0, hgrad_dof, hgrad_name, hgrad_order,
     [&](const size_t b, const LO elem, std::vector<GO> & gids) {
       std::vector<GO> prm_gids;
       params->paramDOF->getElementGIDs(elem, prm_gids, mesh->block_names[b]);

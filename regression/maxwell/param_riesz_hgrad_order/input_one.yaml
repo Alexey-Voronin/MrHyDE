@@ -1,0 +1,48 @@
+%YAML 1.1
+---
+ANONYMOUS:
+  Mesh input file: ../param_riesz_batch/input_batch.yaml
+  Physics input file: ../param_riesz_batch/input_batch.yaml
+  Discretization input file: ../param_riesz_batch/input_batch.yaml
+  Parameters input file: ../param_riesz_batch/input_batch.yaml
+  Functions input file: ../param_riesz_batch/input_batch.yaml
+  Solver input file: ../param_riesz_batch/input_batch.yaml
+  Analysis input file: ../param_riesz_batch/input_batch.yaml
+  Postprocess input file: ../param_riesz_batch/input_batch.yaml
+  Discretization:
+    quadrature: 4                      # an order-2 control needs degree-4 terms integrated exactly; 2 leaves the Riesz matrix singular
+    side quadrature: 4
+  Parameters:
+    ctrl_current:
+      order: 2
+  Solver:
+    linear TOL: 1.0e-12                # 1e-14 is at the round-off floor of these state solves
+    max linear iters: 500
+    Belos solver: 'GCRODR'
+    Num Blocks: 30
+    Num Recycled Blocks: 20
+    Maximum Restarts: 102
+    preconditioner type: block triangular
+    Block Triangular Settings:
+      variable groups:
+        B: 'B'
+        E: 'E'
+      schur target: E
+      approximation type: exact-curl
+      B:
+        preconditioner: AMG
+        AMG Settings:
+          xml param file: ../xml/pivot_jacobi.xml
+      E:
+        preconditioner: RefMaxwell
+        hgrad basis name: phi_aux
+        hcurl basis name: E
+        hgrad basis order: 1
+        hcurl basis order: 1
+        RefMaxwell Settings:
+          xml param file: ../xml/refmaxwell_emin_nodrop.xml   # a positive drop tol leaves a singular coarse matrix on these flat hexes next to PEC
+          'filter SM': true
+    Parameter Riesz map:
+      Iterative Settings:
+        hgrad order: 1                 # RefMaxwell's H(grad) at order 1; the default follows the control's order
+...
