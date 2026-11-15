@@ -96,6 +96,7 @@ private:
     }
     if (krylov.is_null()) {
       problem = Teuchos::rcp(new Belos::LinearProblem<ScalarT,LA_MultiVector,LA_Operator>(P_live, z, b));
+      problem->setLabel(belos_params->get<std::string>("Timer Label"));
       if (!prec.is_null()) { problem->setLeftPrec(prec); }
       problem->setProblem();
       Belos::SolverFactory<ScalarT,LA_MultiVector,LA_Operator> factory;

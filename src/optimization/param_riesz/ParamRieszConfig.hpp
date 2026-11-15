@@ -58,6 +58,7 @@ namespace MrHyDE {
                    static_cast<double>(block_prec::scalarParam(iset, "tolerance", 1.0e-14)));
         belos->set("Maximum Iterations", iset.get<int>("max iterations", 500));
         if (krylov == "GMRES") { belos->set("Num Blocks", 50); }
+        belos->set("Timer Label", std::string("MrHyDE::ParamRiesz"));
         belos->setParameters(iset.sublist("Belos Settings"));
       }
       l2_weight = block_prec::scalarParam(rset, "l2 weight", 1.0);

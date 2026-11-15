@@ -89,6 +89,7 @@ maybeWrapInInnerKrylov(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
                        const Teko::LinearOp & innerPrec,
                        const Teuchos::ParameterList & blockList,
                        const std::string & label,
+                       const size_t split,
                        const int verbosity) {
   if (!blockList.isParameter("inner krylov solver")) return innerPrec;
   // Inner Krylov gives a different operator on every apply, so the outer solver
@@ -116,6 +117,8 @@ maybeWrapInInnerKrylov(const Teuchos::RCP<LinearSolverContext<Node> > & cntxt,
   solverList.set("Output Frequency", 0);
   solverList.set("Output Style", static_cast<int>(Belos::Brief));
   solverList.set("Implicit Residual Scaling", std::string("Norm of Initial Residual"));
+  // Per-split timers; under the default 'Belos' label they merge with the outer solver's.
+  solverList.set("Timer Label", label + " (" + cntxt->split(split).name + ") inner");
   if (verbosity >= 10 && blockMat->getComm()->getRank() == 0) {
     std::cout << "[" << label << "] wrapping block preconditioner in inner Belos '"
               << innerSolver << "' (max iters=" << innerMaxIters
@@ -166,7 +169,7 @@ buildBlockOperator(const typename BlockTypes<Node>::CrsMatrixRCP & mat,
   if (innerPrec.is_null()) {
     innerPrec = tpetraToThyra<Node>(tpetraPrec, mat->getRangeMap(), mat->getDomainMap());
   }
-  return maybeWrapInInnerKrylov<Node>(cntxt, mat, innerPrec, blockList, label, verbosity);
+  return maybeWrapInInnerKrylov<Node>(cntxt, mat, innerPrec, blockList, label, split, verbosity);
 }
 
 namespace detail {
