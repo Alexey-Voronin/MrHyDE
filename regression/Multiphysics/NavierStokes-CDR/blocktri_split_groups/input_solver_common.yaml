@@ -10,7 +10,6 @@ ANONYMOUS:
     linear TOL: 1.0e-6
     max nonlinear iters: 10
     max linear iters: 2000
-    krylov vectors: 250
     use preconditioner: true
     preconditioner type: block triangular
 ...

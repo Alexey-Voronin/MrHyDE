@@ -683,7 +683,6 @@ public:
   
   // Linear solvers and preconditioner settings
   int maxLinearIters;                                         //!< Maximum number of solver iterations.
-  int maxKrylovVectors;                                       //!< Maximum number of Krylov vectors (restarts).
   string belos_residual_scaling;                              //!< Belos residual scaling setting.
   ScalarT linearTOL;                                          //!< Solver tolerance for linear solves.
   bool doCondEst;                                             //!< Whether to compute condition number estimates.

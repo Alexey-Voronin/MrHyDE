@@ -32,7 +32,6 @@ comm(comm_), settings(settings_), disc(disc_), params(params_) {
   linearTOL = settings->sublist("Solver").get<double>("linear TOL",1.0E-7);
   doCondEst = settings->sublist("Solver").get<bool>("Estimate Condition Number",false);
   maxLinearIters = settings->sublist("Solver").get<int>("max linear iters",100);
-  maxKrylovVectors = settings->sublist("Solver").get<int>("krylov vectors",100);
   belos_residual_scaling = settings->sublist("Solver").get<string>("Belos implicit residual scaling","None");
   // Also: "Norm of Preconditioned Initial Residual" or "Norm of Initial Residual"
 

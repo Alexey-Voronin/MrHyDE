@@ -1429,7 +1429,6 @@ Solver ->
  linear TOL = 1e-07   [default]
  Estimate Condition Number = 0   [default]
  max linear iters = 100   [default]
- krylov vectors = 100   [default]
  Belos implicit residual scaling = None   [default]
  dump jacobian = 0   [default]
  dump residual = 0   [default]

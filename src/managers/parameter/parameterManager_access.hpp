@@ -47,35 +47,6 @@ int ParameterManager<Node>::getNumParams(const std::string & type) {
 }
 
 // ========================================================================================
-// return the discretized parameters as vector for use with ROL (deprecated)
-// ========================================================================================
-
-template<class Node>
-vector<ScalarT> ParameterManager<Node>::getDiscretizedParamsVector() {
-  int numDParams = this->getNumParams(4);
-  vector<ScalarT> discLocalParams(numDParams);
-  vector<ScalarT> discParams(numDParams);
-  auto Psol_2d = this->fullSlab(0, false)->template getLocalView<LA_device>(Tpetra::Access::ReadWrite);
-  auto Psol_host = Kokkos::create_mirror_view(Psol_2d);
-  for (size_t i = 0; i < paramOwned.size(); i++) {
-    int gid = paramOwned[i];
-    discLocalParams[gid] = Psol_host(i,0);
-    //cout << gid << " " << Psol_2d(i,0) << endl;
-  }
-  for (int i = 0; i < numDParams; i++) {
-    ScalarT globalval = 0.0;
-    ScalarT localval = discLocalParams[i];
-    Teuchos::reduceAll(*Comm,Teuchos::REDUCE_SUM,1,&localval,&globalval);
-    //Comm->SumAll(&localval, &globalval, 1);
-    discParams[i] = globalval;
-    //cout << i << " " << globalval << "  " << localval << endl;
-    
-  }
-  
-  return discParams;
-}
-
-// ========================================================================================
 // return the discretized parameters as vector of vector_RCPs for use with ROL
 // ========================================================================================
 
@@ -163,6 +134,7 @@ MrHyDE_OptVector ParameterManager<Node>::getCurrentVector() {
   //}
   if (globalParamUnknowns > 0) {
     //if (have_dynamic_discretized) {
+      this->separateSlabs();
       new_disc_params = control_params;
     //}
     //else {
@@ -172,17 +144,6 @@ MrHyDE_OptVector ParameterManager<Node>::getCurrentVector() {
     
   MrHyDE_OptVector newvec(new_disc_params, new_active_params, 1.0, diagParamMass, paramRiesz, Comm->getRank());
   return newvec;
-}
-
-// ========================================================================================
-// return the discretized parameters as vector of vector_RCPs for use with ROL
-// ========================================================================================
-
-template<class Node>
-vector<Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > > ParameterManager<Node>::getDynamicDiscretizedParams() {
-  vector<vector_RCP> slabs;
-  for (size_t i=0; i<control_params.size(); ++i) { slabs.push_back(this->fullSlab(i, false)); }
-  return slabs;
 }
 
 // ========================================================================================

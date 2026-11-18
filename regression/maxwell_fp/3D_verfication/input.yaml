@@ -55,7 +55,6 @@ ANONYMOUS:
     max nonlinear iters: 10
     linear TOL: 1.0e-08
     max linear iters: 2500
-    krylov vectors: 2500
     use dom decomp: true
   Postprocess: 
     compute errors: true

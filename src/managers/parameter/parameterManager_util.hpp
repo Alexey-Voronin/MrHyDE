@@ -24,8 +24,10 @@ void ParameterManager<Node>::setInitialParams() {
     numsols = numTimeSteps;
   }
   
+  // The slabs share one vector until setControlMap or separateSlabs gives each its own.
+  const vector_RCP initial = Teuchos::rcp(new LA_MultiVector(param_owned_map,1));
   for (int i=0; i<numsols; ++i) {
-    control_params.push_back(Teuchos::rcp(new LA_MultiVector(param_owned_map,1)));
+    control_params.push_back(initial);
   }
   param_slab = Teuchos::rcp(new LA_MultiVector(param_owned_map,1));
   param_slab_over = Teuchos::rcp(new LA_MultiVector(param_overlapped_map,1));
@@ -261,6 +263,18 @@ bool ParameterManager<Node>::fillSlab(const int index) {
   }
   return true;
 }
+
+// ========================================================================================
+// ========================================================================================
+
+template<class Node>
+void ParameterManager<Node>::separateSlabs() {
+  if (control_params.size() < 2 || control_params[1] != control_params[0]) { return; }
+  for (size_t i=1; i<control_params.size(); ++i) {
+    control_params[i] = Teuchos::rcp(new LA_MultiVector(*control_params[0], Teuchos::Copy));
+  }
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////
 // After the setup phase, we can get rid of a few things
 /////////////////////////////////////////////////////////////////////////////////////////////

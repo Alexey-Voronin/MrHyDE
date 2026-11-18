@@ -82,9 +82,6 @@ namespace MrHyDE {
     /** @brief Returns number of parameters of a given type (string identifier). */
     int getNumParams(const std::string & type);
 
-    /** @brief Returns discretized parameters as a flattened std::vector for ROL. */
-    std::vector<ScalarT> getDiscretizedParamsVector();
-
     /** @brief Returns the primary discretized parameter multivector. */
     vector_RCP getDiscretizedParams();
 
@@ -96,9 +93,6 @@ namespace MrHyDE {
 
     /** @brief Returns "over" version of time derivatives. */
     vector_RCP getDiscretizedParamsDotOver();
-
-    /** @brief Returns a vector of dynamic parameter fields over time. */
-    std::vector<vector_RCP> getDynamicDiscretizedParams();
 
     /** @brief Converts parameters to Sacado AD types and seeds derivatives. */
     void sacadoizeParams(const bool & seed_active);
@@ -344,6 +338,9 @@ namespace MrHyDE {
 
     // Fills param_slab and param_slab_over with slab index unless they hold it; false if there is no such slab.
     bool fillSlab(const int index);
+
+    // Gives every slab its own copy if they still share the vector from setInitialParams.
+    void separateSlabs();
 
     std::vector<vector_RCP> control_params;                    // Stored parameter slabs, on control_map; ROL sees these
     vector_RCP off_control;                                    // 1 on the rows outside control_map

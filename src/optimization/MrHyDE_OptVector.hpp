@@ -35,6 +35,7 @@ private:
   bool have_scalar, have_field, have_dynamic_scalar, have_dynamic_field;
   double dyn_dt = 1.0;
   
+  // Cloned by the first dual() call, since most ROL vectors never ask for theirs.
   mutable std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > > dual_field_vec;
   mutable std::vector<ROL::Ptr<ROL::StdVector<ScalarT> > > dual_scalar_vec;
   mutable ROL::Ptr<MrHyDE_OptVector> dual_vec;
@@ -46,7 +47,6 @@ private:
   mutable ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > diagParamMass;
   mutable bool have_mass, have_mass_diag;
   mutable std::vector<vector_RCP> last_solve_in;   // input of the last P^-1 solve, per slab
-  mutable std::vector<vector_RCP> last_solve_diff;  // per-slab scratch for the same-as-last check
   
   ROL::Elementwise::Multiply<ScalarT> mult_;
   ROL::Elementwise::Divide<ScalarT> div_;
@@ -95,7 +95,6 @@ public:
     }
     for (size_t k=0; k<f_vec.size(); ++k) {
       field_vec.push_back(ROL::makePtr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode>>(f_vec[k]));
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
     }
     
     if (f_vec.size() > 1) {
@@ -103,12 +102,6 @@ public:
     }
     else {
       have_dynamic_field = false;
-    }
-    
-    if (have_scalar) {
-      for (size_t k=0; k<s_vec.size(); ++k) {
-        dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
-      }
     }
     
     if (Teuchos::is_null(paramRiesz)) {
@@ -163,7 +156,6 @@ public:
     }
     for (size_t k=0; k<f_vec.size(); ++k) {
       field_vec.push_back(ROL::makePtr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode>>(f_vec[k]));
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
     }
     
     if (f_vec.size() > 1) {
@@ -171,12 +163,6 @@ public:
     }
     else {
       have_dynamic_field = false;
-    }
-    
-    if (have_scalar) {
-      for (size_t k=0; k<s_vec.size(); ++k) {
-        dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
-      }
     }
     
     paramRiesz = Teuchos::null;
@@ -220,10 +206,6 @@ public:
       
     for (size_t k=0; k<f_vec.size(); ++k) {
       field_vec.push_back(ROL::makePtr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode>>(f_vec[k]));
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
-    }
-    if (have_scalar) {
-      dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
     }
     
     paramRiesz = Teuchos::null;
@@ -266,15 +248,8 @@ public:
     
     have_field = true;
     field_vec.push_back(ROL::makePtr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode>>(f_vec));
-    dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[0]->dual().clone()));
     
     have_dynamic_field = false;
-    
-    if (have_scalar) {
-      for (size_t k=0; k<s_vec.size(); ++k) {
-        dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
-      }
-    }
     
     paramRiesz = Teuchos::null;
     diagParamMass = Teuchos::null;
@@ -310,9 +285,6 @@ public:
     
     have_field = true;
     
-    dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[0]->dual().clone()));
-    dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
-    
     paramRiesz = Teuchos::null;
     diagParamMass = Teuchos::null;
     have_mass = false;
@@ -337,7 +309,6 @@ public:
     
     for (size_t k=0; k<f_vec.size(); ++k) {
       field_vec.push_back(ROL::makePtr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(f_vec[k]));
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
     }
     have_dynamic_field = false;
     if (f_vec.size() > 1) {
@@ -368,7 +339,6 @@ public:
     have_dynamic_field = false;
     
     scalar_vec.push_back(ROL::makePtr<ROL::StdVector<ScalarT>>(s_vec));
-    dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
     
     paramRiesz = Teuchos::null;
     diagParamMass = Teuchos::null;
@@ -435,14 +405,6 @@ public:
       have_dynamic_field = false;
     }
     
-    for (size_t k=0; k<f_vec.size(); ++k) {
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
-    }
-    
-    for (size_t k=0; k<s_vec.size(); ++k) {
-      dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
-    }
-    
     paramRiesz = Teuchos::null;
     diagParamMass = Teuchos::null;
     have_mass = false;
@@ -487,14 +449,6 @@ public:
       have_dynamic_field = false;
     }
     
-    for (size_t k=0; k<f_vec.size(); ++k) {
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
-    }
-    
-    for (size_t k=0; k<s_vec.size(); ++k) {
-      dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
-    }
-    
     paramRiesz = riesz;
     diagParamMass = diagMass;
     
@@ -543,11 +497,6 @@ public:
       have_dynamic_field = false;
     }
     
-    for (size_t k=0; k<f_vec.size(); ++k) {
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
-    }
-    dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
-    
     paramRiesz = Teuchos::null;
     diagParamMass = Teuchos::null;
     have_mass = false;
@@ -584,12 +533,6 @@ public:
   
     field_vec.push_back(f_vec);
     
-    dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[0]->dual().clone()));
-  
-    for (size_t k=0; k<s_vec.size(); ++k) {
-      dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
-    }
-    
     paramRiesz = Teuchos::null;
     diagParamMass = Teuchos::null;
     have_mass = false;
@@ -620,8 +563,6 @@ public:
     
     scalar_vec.push_back(s_vec);
     field_vec.push_back(f_vec);
-    dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[0]->dual().clone()));
-    dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
     
     paramRiesz = Teuchos::null;
     diagParamMass = Teuchos::null;
@@ -653,10 +594,6 @@ public:
       have_dynamic_field = false;
     }
     have_dynamic_scalar = false;
-    
-    for (size_t k=0; k<f_vec.size(); ++k) {
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(f_vec[k]->dual().clone()));
-    }
     
     paramRiesz = Teuchos::null;
     diagParamMass = Teuchos::null;
@@ -690,10 +627,6 @@ public:
       have_dynamic_field = false;
     }
     have_dynamic_scalar = false;
-    
-    for (size_t k=0; k<f_vec.size(); ++k) {
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(f_vec[k]->dual().clone()));
-    }
     
     paramRiesz = riesz;
     diagParamMass = diagMass;
@@ -732,10 +665,6 @@ public:
     field_vec.push_back(f_vec);
     have_dynamic_field = false;
     
-    for (size_t k=0; k<field_vec.size(); ++k) {
-      dual_field_vec.push_back(ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone()));
-    }
-    
     paramRiesz = Teuchos::null;
     diagParamMass = Teuchos::null;
     have_mass = false;
@@ -759,8 +688,6 @@ public:
     have_dynamic_scalar = false;
     have_field = false;
     have_dynamic_field = false;
-    
-    dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[0]->dual().clone()));
     
     paramRiesz = Teuchos::null;
     diagParamMass = Teuchos::null;
@@ -788,11 +715,6 @@ public:
     }
     have_field = false;
     have_dynamic_field = false;
-    
-    for (size_t k=0; k<s_vec.size(); ++k) {
-      dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
-    }
-    
     
     paramRiesz = Teuchos::null;
     diagParamMass = Teuchos::null;
@@ -822,10 +744,6 @@ public:
     }
     have_field = false;
     have_dynamic_field = false;
-    
-    for (size_t k=0; k<s_vec.size(); ++k) {
-      dual_scalar_vec.push_back(ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone()));
-    }
     
     paramRiesz = riesz;
     diagParamMass = diagMass;
@@ -1112,6 +1030,66 @@ public:
   
   ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
+  // ||this - x|| and ||this|| in norm()'s metric, one slab at a time, so no full-size copy is made.
+  void diffNorms(const ROL::Vector<ScalarT> &x, ScalarT &dnorm, ScalarT &refnorm) const {
+    
+    const MrHyDE_OptVector &xs = dynamic_cast<const MrHyDE_OptVector&>(x);
+    ScalarT dval(0), rval(0);
+    if (field_vec.size() > 0) {
+      auto xs_f = xs.getField();
+      ROL::Ptr<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> > d, w;
+      for (size_t i=0; i<field_vec.size(); ++i) {
+        if ( field_vec[i] == ROL::nullPtr ) { continue; }
+        const vector_RCP c = field_vec[i]->getVector();
+        if ( d == ROL::nullPtr || d->getVector()->getMap() != c->getMap() ) {
+          d = ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[i]->clone());
+          w = ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[i]->clone());
+        }
+        d->set(*field_vec[i]);
+        d->axpy(-1.0,*(xs_f[i]));
+        if (have_mass) {
+          paramRiesz->apply({d->getVector()}, {w->getVector()});
+          dval += d->dot(*w);
+          paramRiesz->apply({c}, {w->getVector()});
+          rval += field_vec[i]->dot(*w);
+        }
+        else if (have_mass_diag) {
+          w->set(*d);
+          this->multiply_scaling(w);
+          dval += d->dot(*w);
+          w->set(*field_vec[i]);
+          this->multiply_scaling(w);
+          rval += field_vec[i]->dot(*w);
+        }
+        else {
+          dval += d->dot(*d);
+          rval += field_vec[i]->dot(*field_vec[i]);
+        }
+      }
+      if (!have_mass && !have_mass_diag) {
+        dval *= dualityScale;
+        rval *= dualityScale;
+      }
+    }
+    
+    if (scalar_vec.size() > 0) {
+      auto xs_s = xs.getParameter();
+      for (size_t i=0; i<scalar_vec.size(); ++i) {
+        if ( scalar_vec[i] != ROL::nullPtr ) {
+          auto ds = scalar_vec[i]->clone();
+          ds->set(*scalar_vec[i]);
+          ds->axpy(-1.0,*(xs_s[i]));
+          dval += ds->dot(*ds);
+          rval += scalar_vec[i]->dot(*scalar_vec[i]);
+        }
+      }
+    }
+    dnorm = std::sqrt(dval);
+    refnorm = std::sqrt(rval);
+  }
+  
+  ///////////////////////////////////////////////////
+  ///////////////////////////////////////////////////
   
   ROL::Ptr<ROL::Vector<ScalarT> > clone(void) const {
     
@@ -1151,10 +1129,31 @@ public:
   
   ///////////////////////////////////////////////////
   ///////////////////////////////////////////////////
+  // dual().clone() without applying the Riesz map: a zero vector of the other space.
+  ROL::Ptr<ROL::Vector<ScalarT> > dualClone(void) const {
+    ROL::Ptr<MrHyDE_OptVector> v = ROL::dynamicPtrCast<MrHyDE_OptVector>(this->clone());
+    v->isDual = !isDual;
+    return v;
+  }
+  
+  ///////////////////////////////////////////////////
+  ///////////////////////////////////////////////////
   
   const ROL::Vector<ScalarT> & dual(void) const {
     
     if ( !isDualInitialized ) {
+      dual_field_vec.resize(field_vec.size());
+      for (size_t k=0; k<field_vec.size(); ++k) {
+        if ( field_vec[k] != ROL::nullPtr ) {
+          dual_field_vec[k] = ROL::dynamicPtrCast<ROL::TpetraMultiVector<ScalarT,LO,GO,SolverNode> >(field_vec[k]->dual().clone());
+        }
+      }
+      dual_scalar_vec.resize(scalar_vec.size());
+      for (size_t k=0; k<scalar_vec.size(); ++k) {
+        if ( scalar_vec[k] != ROL::nullPtr ) {
+          dual_scalar_vec[k] = ROL::dynamicPtrCast<ROL::StdVector<ScalarT> >(scalar_vec[k]->dual().clone());
+        }
+      }
       // The dual of a primal vector is a dual vector and the other way round.
       // dot() keys its scaling on this flag, so it has to be set here.
       if ( !have_field) {
@@ -1326,29 +1325,32 @@ public:
     if ( last_solve_in.size() != field_vec.size() ) { return false; }
     for (size_t i=0; i<field_vec.size(); ++i) {
       if ( field_vec[i] == ROL::nullPtr ) { continue; }
-      if ( last_solve_in[i].is_null() || i >= last_solve_diff.size() || last_solve_diff[i].is_null() ) { return false; }
+      if ( last_solve_in[i].is_null() ) { return false; }
       const vector_RCP x = field_vec[i]->getVector();
-      last_solve_diff[i]->update(1.0, *x, -1.0, *last_solve_in[i], 0.0);
-      Teuchos::Array<ScalarT> norms(x->getNumVectors());
-      last_solve_diff[i]->normInf(norms());
-      for (size_t j=0; j<norms.size(); ++j) {
-        if ( norms[j] != 0.0 ) { return false; }
-      }
+      auto x_view = x->template getLocalView<LA_device>(Tpetra::Access::ReadOnly);
+      auto l_view = last_solve_in[i]->template getLocalView<LA_device>(Tpetra::Access::ReadOnly);
+      int ndiff = 0;
+      parallel_reduce("OptVector same as last solve",
+                      RangePolicy<LA_exec>(0,x_view.extent(0)),
+                      KOKKOS_LAMBDA (const int k, int & n) {
+        for (size_t j=0; j<x_view.extent(1); ++j) {
+          if ( x_view(k,j) != l_view(k,j) ) { ++n; }
+        }
+      }, ndiff);
+      int gdiff = 0;
+      Teuchos::reduceAll<int,int>(*(x->getMap()->getComm()), Teuchos::REDUCE_MAX, ndiff, Teuchos::outArg(gdiff));
+      if ( gdiff != 0 ) { return false; }
     }
     return true;
   }
   
   void rememberLastSolve() const {
     last_solve_in.resize(field_vec.size());
-    last_solve_diff.resize(field_vec.size());
     for (size_t i=0; i<field_vec.size(); ++i) {
       if ( field_vec[i] == ROL::nullPtr ) { continue; }
       const vector_RCP x = field_vec[i]->getVector();
       if ( last_solve_in[i].is_null() ) {
         last_solve_in[i] = Teuchos::rcp(new LA_MultiVector(x->getMap(), x->getNumVectors()));
-      }
-      if ( last_solve_diff[i].is_null() ) {
-        last_solve_diff[i] = Teuchos::rcp(new LA_MultiVector(x->getMap(), x->getNumVectors()));
       }
       last_solve_in[i]->assign(*x);
     }

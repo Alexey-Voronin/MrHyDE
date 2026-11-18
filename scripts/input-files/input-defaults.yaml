@@ -85,7 +85,6 @@ ANONYMOUS: # Comments
     max nonlinear iters: 10
     linear TOL: 1.0e-7
     max linear iters: 100
-    krylov vectors: 100
     initial time: 0.0
     final time: 1.0
     delta t: 1.0

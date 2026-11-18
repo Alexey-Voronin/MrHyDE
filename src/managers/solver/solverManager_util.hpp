@@ -148,17 +148,6 @@ void SolverManager<Node>::setDirichlet(const size_t & set, vector_RCP & u) {
 // ========================================================================================
 
 template<class Node>
-Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > SolverManager<Node>::setInitialParams() {
-  vector_RCP initial = linalg->getNewOverlappedParamVector();
-  ScalarT value = 2.0;
-  initial->putScalar(value);
-  return initial;
-}
-
-// ========================================================================================
-// ========================================================================================
-
-template<class Node>
 vector<Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > > SolverManager<Node>::setInitial() {
   
   Teuchos::TimeMonitor localtimer(*initsettimer);

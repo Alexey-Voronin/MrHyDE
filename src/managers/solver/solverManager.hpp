@@ -276,9 +276,6 @@ public:
   /** @brief Project solution into Dirichlet-constrained space */
   void projectDirichlet(const size_t & set);
   
-  /** @brief Generate initial parameter vector */
-  vector_RCP setInitialParams();
-  
   /** @brief Generate initial solution vector(s) */
   vector<vector_RCP> setInitial();
   

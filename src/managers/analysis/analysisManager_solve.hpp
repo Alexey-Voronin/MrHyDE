@@ -944,7 +944,9 @@ void AnalysisManager::ROL2Solve()
   // Teuchos::Time timer("Optimization Time", true);
 
   // Construct ROL problem.
-  ROL::Ptr<ROL::Problem<RealT>> rolProblem = ROL::makePtr<ROL::Problem<RealT>>(obj, x);
+  // Passing g keeps ROL from building it as x->dual().clone(), which applies the Riesz map and fills x's dual buffer.
+  Teuchos::RCP<ROL::Vector<ScalarT>> g = dynamic_cast<const MrHyDE_OptVector &>(*x).dualClone();
+  ROL::Ptr<ROL::Problem<RealT>> rolProblem = ROL::makePtr<ROL::Problem<RealT>>(obj, x, g);
   // rolProblem->check(true, *outStream);
   if (bound_vars)
   {

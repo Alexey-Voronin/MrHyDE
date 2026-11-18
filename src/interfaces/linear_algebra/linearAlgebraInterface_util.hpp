@@ -206,9 +206,12 @@ void LinearAlgebraInterface<Node>::resetParamStateJacobian() {
 
 template<class Node>
 void LinearAlgebraInterface<Node>::resetPrevJacobian() {
+  // Kept under 'reuse Jacobian across sweeps'; a dt or BDF order change trips the kept state Jacobian's scale check first.
   for (size_t step=0; step<context_prev.size(); ++step) {
     for (size_t set=0; set<context_prev[step].size(); ++set) {
-      context_prev[step][set]->reset();
+      if (!context_prev[step][set]->reuse_across_sweeps) {
+        context_prev[step][set]->reset();
+      }
     }
   }
 }

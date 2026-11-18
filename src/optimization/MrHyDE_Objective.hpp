@@ -97,14 +97,11 @@ namespace ROL {
       
     }
     
+    // Re-solve the state only if ROL's control differs from the one the stored trajectory used.
     bool checkNewParams(const Vector<Real> &Params) {
       MrHyDE_OptVector curr_params = params->getCurrentVector();
-      auto diff = curr_params.clone();
-      diff->zero();
-      diff->set(curr_params);
-      diff->axpy(-1.0,Params);
-      ScalarT dnorm = diff->norm();
-      ScalarT refnorm = curr_params.norm();
+      ScalarT dnorm = 0.0, refnorm = 0.0;
+      curr_params.diffNorms(Params, dnorm, refnorm);
       dnorm = dnorm/refnorm;
       ScalarT reltol = 1.0e-12;
       bool newparams = false;

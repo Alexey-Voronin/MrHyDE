@@ -11,6 +11,7 @@
 template<class Node>
 void ParameterManager<Node>::updateParams(const vector_RCP & newparams) {
   const int index = have_dynamic_discretized ? dynamic_timeindex : 0;
+  this->separateSlabs();
   this->toControl(*newparams, *control_params[index], false);
   param_slab_index = -1;
 }
@@ -46,6 +47,7 @@ void ParameterManager<Node>::updateParams(MrHyDE_OptVector & newparams) {
   if (newparams.haveField()) {
     auto disc_params = newparams.getField();
     
+    this->separateSlabs();
     for (size_t i=0; i<disc_params.size(); ++i) {
       control_params[i]->assign(*disc_params[i]->getVector());
     }
