@@ -159,7 +159,7 @@ void AnalysisManager::hessianSolve() {
 
     Teuchos::RCP<Tpetra::Operator<ScalarT,LO,GO,SolverNode> > Hop
       = Teuchos::rcp(new MrHyDE_HessianOperator(obj,x,params_->param_owned_map,
-                                                fd_step,rz));
+                                                fd_step,rz,params_->to_control));
 
     if (probe == "operator") {
       Teuchos::ParameterList wp;
@@ -192,14 +192,19 @@ void AnalysisManager::hessianSolve() {
 
   for (int c=0; c<ncols; ++c) {
 
+    // Unit vector for parameter id j % nspatial of slab j / nspatial; zero when that id is not a control row.
     const int j = cols[c];
-    ROL::Ptr<ROL::Vector<ScalarT> > ej = x->basis(j);
+    ROL::Ptr<ROL::Vector<ScalarT> > ej = x->clone();
+    ej->zero();
+    vector_RCP ev = Teuchos::dyn_cast<MrHyDE_OptVector>(*ej).getField()[j / nspatial]->getVector();
+    const LO lid = ev->getMap()->getLocalElement(static_cast<GO>(j % nspatial));
+    if (lid != Teuchos::OrdinalTraits<LO>::invalid()) { ev->replaceLocalValue(lid, 0, 1.0); }
 
     ScalarT tol = fd_step;
     obj->hessVec(*hv,*ej,*x,tol);
 
     for (int t=0; t<nslabs; ++t) {
-      Hblocks[t]->getVectorNonConst(c)->update(1.0,*(hvf[t]->getVector()),0.0);
+      params_->fromControl(*(hvf[t]->getVector()),*(Hblocks[t]->getVectorNonConst(c)));
     }
 
     if (rank == 0 && ncols > 20 && (c+1)%(ncols/20) == 0) {

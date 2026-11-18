@@ -70,9 +70,10 @@ wrapParamCrs(const Teuchos::RCP<Tpetra::CrsMatrix<ScalarT,LO,GO,Node> > & A) {
 }
 
 // Ranks to hold the control rows, from global values only so every rank agrees; 0 keeps the mesh layout.
-inline int paramRieszRanks(const int setting, const GO nrows, const int nranks) {
+inline int paramRieszRanks(const int setting, const int min_rows, const GO nrows, const int nranks) {
   if (setting < 0 || nranks == 1 || nrows == 0) return 0;
-  const GO want = (setting > 0) ? GO(setting) : GO(nranks);
+  GO want = (setting > 0) ? GO(setting) : GO(nranks);
+  if (min_rows > 0) want = std::min<GO>(want, std::max<GO>(1, nrows / min_rows));
   return static_cast<int>(std::min<GO>(std::min<GO>(nranks, nrows), want));
 }
 
@@ -120,7 +121,51 @@ partitionRows(const Teuchos::RCP<const Tpetra::CrsMatrix<ScalarT,LO,GO,Node> > &
 // ========================================================================================
 
 template<class Node>
-Teuchos::RCP<MrHyDE_ParamRiesz> SolverManager<Node>::buildIterativeParamRiesz(const vector_RCP & assembled_diag) {
+bool SolverManager<Node>::restrictParamMetric(matrix_RCP & P, vector_RCP & D) {
+
+  using Map = Tpetra::Map<LO,GO,Node>;
+  const Teuchos::RCP<const Map> pmap = paramMass->getRowMap();
+  std::vector<GO> gids;
+  {
+    auto d = diagParamMass->getLocalViewHost(Tpetra::Access::ReadOnly);
+    for (size_t i = 0; i < d.extent(0); ++i) {
+      if (d(i,0) != 0.0) gids.push_back(pmap->getGlobalElement(static_cast<LO>(i)));
+    }
+  }
+  const Teuchos::RCP<const Map> ctrl_map = Teuchos::rcp(new Map(
+    Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(), Teuchos::ArrayView<const GO>(gids),
+    pmap->getIndexBase(), pmap->getComm()));
+  const GO nctrl = static_cast<GO>(ctrl_map->getGlobalNumElements()), nrows = static_cast<GO>(pmap->getGlobalNumElements());
+  TEUCHOS_TEST_FOR_EXCEPTION(nctrl == 0, std::runtime_error, "Riesz map: the operator assembled nothing");
+  P = paramMass;
+  D = diagParamMass;
+  if (nctrl == nrows) return true;
+  // TODO: other analysis types (ROLStoch, HDSA, UQ) may benefit from a reduced control too; verify each before listing it.
+  // Only these analysis types are verified on a control that leaves rows out; the others keep every row.
+  const std::set<std::string> verified = {"adjoint", "forward+adjoint", "ROL", "ROL2", "hessian"};
+  const std::string atype = settings->sublist("Analysis").get<std::string>("analysis type", "forward");
+  if (verified.count(atype) == 0) {
+    TEUCHOS_TEST_FOR_EXCEPTION(atype == "ROLStoch" || atype == "HDSA", std::runtime_error,
+      "Riesz map: analysis type '" << atype << "' applies the metric to a control on every parameter row, "
+      "but the metric covers " << nctrl << " of " << nrows << " rows. Remove 'Solver: Parameter Riesz map: "
+      "blocks' (or regularize on every block), or use analysis type ROL or ROL2.");
+    if (verbosity >= 5 && Comm->getRank() == 0) {
+      std::cout << "[RieszMap] not built: analysis type '" << atype << "' never applies it" << std::endl;
+    }
+    return false;
+  }
+  params->setControlMap(ctrl_map);
+  P = restrictParamCrs<Node>(*paramMass, ctrl_map, *diagParamMass, ctrl_map);
+  D = Teuchos::rcp(new LA_MultiVector(ctrl_map, 1));
+  params->toControl(*diagParamMass, *D, false);
+  return true;
+}
+
+// ========================================================================================
+// ========================================================================================
+
+template<class Node>
+Teuchos::RCP<MrHyDE_ParamRiesz> SolverManager<Node>::buildIterativeParamRiesz(const matrix_RCP & P) {
 
   debugger->print("**** Starting SolverManager::buildIterativeParamRiesz()");
   static Teuchos::RCP<Teuchos::Time> setuptimer = Teuchos::TimeMonitor::getNewCounter("MrHyDE::ParamRiesz::setup()");
@@ -129,23 +174,12 @@ Teuchos::RCP<MrHyDE_ParamRiesz> SolverManager<Node>::buildIterativeParamRiesz(co
   using Map = Tpetra::Map<LO,GO,Node>;
   using CoordMV = Tpetra::MultiVector<typename Teuchos::ScalarTraits<ScalarT>::coordinateType,LO,GO,Node>;
   const Teuchos::RCP<const Map> pmap = paramMass->getRowMap();
-
-  // The padded rows are diagonal, so the metric splits into the control block and a diagonal.
-  std::vector<GO> live_gids;
-  {
-    auto d = assembled_diag->getLocalViewHost(Tpetra::Access::ReadOnly);
-    for (size_t i = 0; i < d.extent(0); ++i) {
-      if (d(i,0) != 0.0) live_gids.push_back(pmap->getGlobalElement(static_cast<LO>(i)));
-    }
-  }
-  const Teuchos::RCP<const Map> live_map = Teuchos::rcp(new Map(
-    Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(), Teuchos::ArrayView<const GO>(live_gids),
-    pmap->getIndexBase(), pmap->getComm()));
-  matrix_RCP P_live = restrictParamCrs<Node>(*paramMass, live_map, *assembled_diag, live_map);
+  const Teuchos::RCP<const Map> live_map = P->getRowMap();
+  matrix_RCP P_live = P;
 
   // The control rows move to nparts ranks, cut along the couplings of P; nparts == 0 keeps the mesh layout.
-  const int nparts = paramRieszRanks(param_riesz.ranks, static_cast<GO>(live_map->getGlobalNumElements()),
-                                     pmap->getComm()->getSize());
+  const int nparts = paramRieszRanks(param_riesz.ranks, param_riesz.min_rows_per_rank,
+                                     static_cast<GO>(live_map->getGlobalNumElements()), pmap->getComm()->getSize());
   Teuchos::RCP<const Map> edge_map = live_map;
   Teuchos::RCP<const Tpetra::Import<LO,GO,Node> > to_new;
   if (nparts > 0) {
@@ -187,8 +221,8 @@ Teuchos::RCP<MrHyDE_ParamRiesz> SolverManager<Node>::buildIterativeParamRiesz(co
     {
       auto t = touched.getLocalViewHost(Tpetra::Access::ReadWrite);
       auto lcl = D0->getLocalMatrixHost();
-      for (size_t i = 0; i < live_gids.size(); ++i) {
-        const auto row = lcl.row(D0->getRowMap()->getLocalElement(live_gids[i]));
+      for (const GO gid : live_map->getLocalElementList()) {
+        const auto row = lcl.row(D0->getRowMap()->getLocalElement(gid));
         for (LO k = 0; k < row.length; ++k) t(row.colidx(k), 0) = 1.0;
       }
     }
@@ -250,7 +284,12 @@ Teuchos::RCP<MrHyDE_ParamRiesz> SolverManager<Node>::buildIterativeParamRiesz(co
   }
 
   debugger->print("**** Finished SolverManager::buildIterativeParamRiesz()");
-  return Teuchos::rcp(new MrHyDE_ParamRieszIterative(paramMass, P_live, diagParamMass, prec, param_riesz, verbosity));
+  // A reduced control follows its metric only when the metric spans every rank; fewer ranks would hold all of it.
+  if (nparts == pmap->getComm()->getSize() && !params->control_map.is_null()) {
+    params->setControlMap(edge_map);
+    return Teuchos::rcp(new MrHyDE_ParamRieszIterative(P_live, P_live, prec, param_riesz, verbosity));
+  }
+  return Teuchos::rcp(new MrHyDE_ParamRieszIterative(P, P_live, prec, param_riesz, verbosity));
 }
 
 // ========================================================================================

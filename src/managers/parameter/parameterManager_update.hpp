@@ -8,16 +8,12 @@
 
 // ========================================================================================
 // ========================================================================================
-#if defined(MrHyDE_ENABLE_HDSA)
 template<class Node>
 void ParameterManager<Node>::updateParams(const vector_RCP & newparams) {
-
-        // only for steady state
-        discretized_params[0]->assign(*newparams);
-        discretized_params_over[0]->putScalar(0.0);
-        discretized_params_over[0]->doImport(*newparams, *param_importer, Tpetra::ADD);
+  const int index = have_dynamic_discretized ? dynamic_timeindex : 0;
+  this->toControl(*newparams, *control_params[index], false);
+  param_slab_index = -1;
 }
-#endif
 // ========================================================================================
 // ========================================================================================
 
@@ -51,11 +47,9 @@ void ParameterManager<Node>::updateParams(MrHyDE_OptVector & newparams) {
     auto disc_params = newparams.getField();
     
     for (size_t i=0; i<disc_params.size(); ++i) {
-      auto owned_vec = disc_params[i]->getVector();
-      discretized_params[i]->assign(*owned_vec);
-      discretized_params_over[i]->putScalar(0.0);
-      discretized_params_over[i]->doImport(*owned_vec, *param_importer, Tpetra::ADD);
+      control_params[i]->assign(*disc_params[i]->getVector());
     }
+    param_slab_index = -1;
     
   }
 

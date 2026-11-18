@@ -26,6 +26,7 @@ namespace MrHyDE {
     std::string xml;                  // MueLu list for RefMaxwell
     int slabs_per_solve = 0;          // iterative apply: most time slabs per Krylov solve; 0 is 'auto', see slabCap
     int ranks = 0;                    // iterative apply: ranks holding the control rows; 0 is 'all', -1 is 'mesh' (the mesh layout)
+    int min_rows_per_rank = 0;        // iterative apply: rows per rank below which the metric runs on fewer ranks, as MueLu's 'repartition: min rows per proc'; 0 is off
     int hgrad_order = 0;              // iterative apply: order of RefMaxwell's H(grad) space; 0 is 'control', the control's order
     Teuchos::RCP<Teuchos::ParameterList> belos;  // tolerance, iterations, Belos Settings
     std::string blocks;               // blank means every block
@@ -41,6 +42,7 @@ namespace MrHyDE {
       strict = false;
       slabs_per_solve = 0;
       ranks = 0;
+      min_rows_per_rank = 0;
       hgrad_order = 0;
       if (apply == "iterative") {
         Teuchos::ParameterList & iset = rset.sublist("Iterative Settings");
@@ -51,6 +53,9 @@ namespace MrHyDE {
         TEUCHOS_TEST_FOR_EXCEPTION(krylov == "GMRES" && slabs_per_solve > 1, std::runtime_error,
                                    "Riesz map: 'slabs per solve' above 1 needs solver CG; GMRES solves one slab at a time.");
         ranks = countOrName(iset, "ranks", {{"all", 0}, {"mesh", -1}});
+        min_rows_per_rank = iset.get<int>("min rows per rank", 0);
+        TEUCHOS_TEST_FOR_EXCEPTION(min_rows_per_rank < 0, std::runtime_error,
+                                   "Riesz map: 'min rows per rank' must be 0 or a positive count");
         hgrad_order = countOrName(iset, "hgrad order", {{"control", 0}});
         xml = iset.get<std::string>("xml param file", "");
         belos = Teuchos::rcp(new Teuchos::ParameterList("Belos"));

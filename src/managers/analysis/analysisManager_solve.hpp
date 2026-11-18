@@ -798,7 +798,7 @@ void AnalysisManager::ROLSolve()
   if (settings_->sublist("Analysis").get("save parameters to file",false) ) {
     string filebase = settings_->sublist("Analysis").get("parameters file","params");
     MrHyDE_OptVector xtmp = params_->getCurrentVector();
-    xtmp.print(filebase);
+    this->writeOptVectorToFile(xtmp, filebase);
   }
 }
 
@@ -988,7 +988,7 @@ void AnalysisManager::ROL2Solve()
   if (settings_->sublist("Analysis").get("save parameters to file",false) ) {
     string filebase = settings_->sublist("Analysis").get("parameters file","params");
     MrHyDE_OptVector xtmp = params_->getCurrentVector();
-    xtmp.print(filebase);
+    this->writeOptVectorToFile(xtmp, filebase);
   }
 }
 
@@ -1503,6 +1503,7 @@ void AnalysisManager::restartSolve()
   {
     disc_params_ = params_->getDiscretizedParams();
     this->recoverSolution(disc_params_, data_type, param_file, disc_param_file);
+    params_->updateParams(disc_params_);
   }
   if (scalar_param_file != "none")
   {
@@ -1599,6 +1600,15 @@ MrHyDE_OptVector AnalysisManager::recoverParametersFromFile() {
   // Are they dynamic?
   bool have_dyn_field = currparams.haveDynamicField();
   
+  // Files hold every parameter row; the control keeps its own.
+  auto readControlFromFile = [&](const std::string & name) {
+    vector_RCP vec = solver_->linalg->readParameterVectorFromFile(name);
+    if (params_->control_map.is_null()) { return vec; }
+    vector_RCP ctrl = Teuchos::rcp(new LA_MultiVector(params_->control_map, 1));
+    params_->toControl(*vec, *ctrl, false);
+    return ctrl;
+  };
+
   // Read in from file if present
   if (have_field) {
     if (have_dyn_field) {
@@ -1608,16 +1618,14 @@ MrHyDE_OptVector AnalysisManager::recoverParametersFromFile() {
         std::stringstream ss;
         ss << paramfilebase << ".field." << t << ".mm";
         
-        vector_RCP vec = solver_->linalg->readParameterVectorFromFile(ss.str());
-        field_params.push_back(vec);
+        field_params.push_back(readControlFromFile(ss.str()));
       }
     }
     else {
       std::stringstream ss;
       ss << paramfilebase << ".field.0.mm";
       
-      vector_RCP vec = solver_->linalg->readParameterVectorFromFile(ss.str());
-      field_params.push_back(vec);
+      field_params.push_back(readControlFromFile(ss.str()));
     }
   }
   
@@ -1682,6 +1690,14 @@ void AnalysisManager::writeOptVectorToFile(MrHyDE_OptVector & vec, string & file
   // Are they dynamic?
   bool have_dyn_field = vec.haveDynamicField();
   
+  // Files hold every parameter row, zero off the control.
+  auto writeControlToFile = [&](ROL::Ptr<ROL::TpetraMultiVector<ScalarT> > slab, string & name) {
+    if (params_->control_map.is_null()) { solver_->linalg->writeROLVectorToFile(slab, name); return; }
+    vector_RCP full = solver_->linalg->getNewParamVector();
+    params_->fromControl(*slab->getVector(), *full);
+    solver_->linalg->writeVectorToFile(full, name);
+  };
+
   // Write to file - each processors only stores a piece of the field
   if (have_field) {
     std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT> > > currfield = vec.getField();
@@ -1691,16 +1707,14 @@ void AnalysisManager::writeOptVectorToFile(MrHyDE_OptVector & vec, string & file
         std::stringstream ss;
         ss << filebase << ".field." << t << ".mm";
         string filename = ss.str();
-        ROL::Ptr<ROL::TpetraMultiVector<ScalarT> > currvec = currfield[t];
-        solver_->linalg->writeROLVectorToFile(currvec, filename);
+        writeControlToFile(currfield[t], filename);
       }
     }
     else {
       std::stringstream ss;
       ss << filebase << ".field.0.mm";
       string filename = ss.str();
-      ROL::Ptr<ROL::TpetraMultiVector<ScalarT> > currvec = currfield[0];
-      solver_->linalg->writeROLVectorToFile(currvec, filename);
+      writeControlToFile(currfield[0], filename);
       
     }
   }

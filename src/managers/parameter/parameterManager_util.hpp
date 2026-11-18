@@ -25,13 +25,11 @@ void ParameterManager<Node>::setInitialParams() {
   }
   
   for (int i=0; i<numsols; ++i) {
-    vector_RCP dyninit = Teuchos::rcp(new LA_MultiVector(param_owned_map,1));
-    vector_RCP dyninit_over = Teuchos::rcp(new LA_MultiVector(param_overlapped_map,1));
-    dyninit->putScalar(0.0); // TMW: why is this hard-coded???
-    dyninit_over->putScalar(0.0); // TMW: why is this hard-coded???
-    discretized_params.push_back(dyninit);
-    discretized_params_over.push_back(dyninit_over);
+    control_params.push_back(Teuchos::rcp(new LA_MultiVector(param_owned_map,1)));
   }
+  param_slab = Teuchos::rcp(new LA_MultiVector(param_owned_map,1));
+  param_slab_over = Teuchos::rcp(new LA_MultiVector(param_overlapped_map,1));
+  param_slab_index = -1;
   
   /*
   if (scalarInitialData) {
@@ -173,6 +171,95 @@ void ParameterManager<Node>::setParamMass(Teuchos::RCP<LA_MultiVector> diag,
   diagParamMass = diag;
   paramRiesz = riesz;
   
+}
+
+// ========================================================================================
+// ========================================================================================
+
+template<class Node>
+void ParameterManager<Node>::setControlMap(const Teuchos::RCP<const LA_Map> & map) {
+  const Teuchos::RCP<LA_Import> imp = Teuchos::rcp(new LA_Import(param_owned_map, map));
+  // One slab at a time through a single full vector; the rows outside the control hold 0 from here on.
+  LA_MultiVector full(param_owned_map, 1);
+  for (size_t i=0; i<control_params.size(); ++i) {
+    this->fromControl(*control_params[i], full);
+    control_params[i] = Teuchos::rcp(new LA_MultiVector(map, 1));
+    control_params[i]->doImport(full, *imp, Tpetra::INSERT);
+  }
+  control_map = map;
+  to_control = imp;
+  off_control = Teuchos::rcp(new LA_MultiVector(param_owned_map, 1));
+  off_control->putScalar(1.0);
+  off_control->doExport(LA_MultiVector(control_map, 1), *to_control, Tpetra::INSERT);
+  param_slab_index = -1;
+}
+
+// ========================================================================================
+// ========================================================================================
+
+template<class Node>
+void ParameterManager<Node>::toControl(const LA_MultiVector & full, LA_MultiVector & ctrl, const bool add) const {
+  if (to_control.is_null()) {
+    if (add) { ctrl.update(1.0, full, 1.0); }
+    else     { ctrl.assign(full); }
+    return;
+  }
+  if (!add) {
+    ctrl.doImport(full, *to_control, Tpetra::INSERT);
+    return;
+  }
+  LA_MultiVector off(param_owned_map, full.getNumVectors(), false);
+  off.elementWiseMultiply(1.0, *off_control->getVector(0), full, 0.0);
+  Teuchos::Array<typename LA_MultiVector::mag_type> nrm(full.getNumVectors());
+  off.normInf(nrm());
+  TEUCHOS_TEST_FOR_EXCEPTION(*std::max_element(nrm.begin(), nrm.end()) > 0.0, std::runtime_error,
+    "the control acts outside the Riesz map's blocks; list every block where it acts in "
+    "'Solver: Parameter Riesz map: blocks'.");
+  LA_MultiVector part(control_map, full.getNumVectors(), false);
+  part.doImport(full, *to_control, Tpetra::INSERT);
+  ctrl.update(1.0, part, 1.0);
+}
+
+// ========================================================================================
+// ========================================================================================
+
+template<class Node>
+void ParameterManager<Node>::fromControl(const LA_MultiVector & ctrl, LA_MultiVector & full) const {
+  if (to_control.is_null()) {
+    full.assign(ctrl);
+    return;
+  }
+  full.putScalar(0.0);
+  full.doExport(ctrl, *to_control, Tpetra::INSERT);
+}
+
+// ========================================================================================
+// ========================================================================================
+
+template<class Node>
+typename ParameterManager<Node>::vector_RCP ParameterManager<Node>::fullSlab(const size_t index, const bool over) const {
+  vector_RCP owned = Teuchos::rcp(new LA_MultiVector(param_owned_map, 1));
+  this->fromControl(*control_params[index], *owned);
+  if (!over) { return owned; }
+  vector_RCP overlapped = Teuchos::rcp(new LA_MultiVector(param_overlapped_map, 1));
+  overlapped->doImport(*owned, *param_importer, Tpetra::ADD);
+  return overlapped;
+}
+
+// ========================================================================================
+// ========================================================================================
+
+template<class Node>
+bool ParameterManager<Node>::fillSlab(const int index) {
+  if (index < 0 || index >= static_cast<int>(control_params.size())) { return false; }
+  if (index != param_slab_index) {
+    this->fromControl(*control_params[index], *param_slab);
+    param_slab_over->putScalar(0.0);
+    // Without a discretized parameter the maps are placeholders with no importer, and the slab stays 0.
+    if (!param_importer.is_null()) { param_slab_over->doImport(*param_slab, *param_importer, Tpetra::ADD); }
+    param_slab_index = index;
+  }
+  return true;
 }
 /////////////////////////////////////////////////////////////////////////////////////////////
 // After the setup phase, we can get rid of a few things

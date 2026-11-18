@@ -1,0 +1,17 @@
+%YAML 1.1
+---
+ANONYMOUS:
+  Mesh input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Physics input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Discretization input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Parameters input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Functions input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Solver input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Analysis input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Postprocess input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Mesh:
+    Xprocs: 2
+    Zprocs: 1
+  Analysis:
+    analysis type: ROLStoch
+...

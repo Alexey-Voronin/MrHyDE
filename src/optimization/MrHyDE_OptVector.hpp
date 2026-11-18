@@ -1242,6 +1242,11 @@ public:
     int offset = 0;
     for (size_t k=0; k<field_vec.size(); ++k) {
       if ( field_vec[k] == ROL::nullPtr ) { continue; }
+      const auto map = field_vec[k]->getVector()->getMap();
+      TEUCHOS_TEST_FOR_EXCEPTION(map->getMaxAllGlobalIndex() + 1 != static_cast<GO>(map->getGlobalNumElements()),
+                                 std::invalid_argument,
+                                 "Error: MrHyDE_OptVector::basis needs slab global ids dense in [0,n), "
+                                 "which a control on part of the parameter rows does not have.");
       const int n = field_vec[k]->dimension();
       if ( i >= offset && i < offset+n ) {
         eref.field_vec[k]->set(*(field_vec[k]->basis(i-offset)));

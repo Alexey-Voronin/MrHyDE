@@ -55,7 +55,7 @@ vector<ScalarT> ParameterManager<Node>::getDiscretizedParamsVector() {
   int numDParams = this->getNumParams(4);
   vector<ScalarT> discLocalParams(numDParams);
   vector<ScalarT> discParams(numDParams);
-  auto Psol_2d = discretized_params[0]->template getLocalView<LA_device>(Tpetra::Access::ReadWrite);
+  auto Psol_2d = this->fullSlab(0, false)->template getLocalView<LA_device>(Tpetra::Access::ReadWrite);
   auto Psol_host = Kokkos::create_mirror_view(Psol_2d);
   for (size_t i = 0; i < paramOwned.size(); i++) {
     int gid = paramOwned[i];
@@ -86,8 +86,8 @@ Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > ParameterManager<Node>::g
   if (have_dynamic_discretized) {
     index = dynamic_timeindex;
   }
-  if (discretized_params.size() > index) {
-    cparams = discretized_params[index];
+  if (this->fillSlab(index)) {
+    cparams = param_slab;
   }
   return cparams;
 }
@@ -100,8 +100,8 @@ Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > ParameterManager<Node>::g
     index = dynamic_timeindex;
   }
   
-  if (discretized_params_over.size() > index) {
-    cparams = discretized_params_over[index];
+  if (this->fillSlab(index)) {
+    cparams = param_slab_over;
   }
   return cparams;
 }
@@ -116,9 +116,11 @@ Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > ParameterManager<Node>::g
     index = dynamic_timeindex;
   }
   
-  if (index > 0 && discretized_params.size() > index+1) {
-    cparamsdot->update(1.0/dynamic_dt,*(discretized_params[index]),1.0);
-    cparamsdot->update(-1.0/dynamic_dt,*(discretized_params[index-1]),1.0);
+  if (index > 0 && control_params.size() > index+1) {
+    vector_RCP prev = this->fullSlab(index-1, false);
+    this->fillSlab(index);
+    cparamsdot->update(1.0/dynamic_dt,*param_slab,1.0);
+    cparamsdot->update(-1.0/dynamic_dt,*prev,1.0);
   }
   return cparamsdot;
 }
@@ -134,9 +136,11 @@ Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > ParameterManager<Node>::g
     index = dynamic_timeindex;
   }
   
-  if (index > 0 && discretized_params_over.size() > index+1) {
-    cparamsdot->update(1.0/dynamic_dt,*(discretized_params_over[index]),1.0);
-    cparamsdot->update(-1.0/dynamic_dt,*(discretized_params_over[index-1]),1.0);
+  if (index > 0 && control_params.size() > index+1) {
+    vector_RCP prev = this->fullSlab(index-1, true);
+    this->fillSlab(index);
+    cparamsdot->update(1.0/dynamic_dt,*param_slab_over,1.0);
+    cparamsdot->update(-1.0/dynamic_dt,*prev,1.0);
   }
   return cparamsdot;
 }
@@ -159,7 +163,7 @@ MrHyDE_OptVector ParameterManager<Node>::getCurrentVector() {
   //}
   if (globalParamUnknowns > 0) {
     //if (have_dynamic_discretized) {
-      new_disc_params = discretized_params;
+      new_disc_params = control_params;
     //}
     //else {
     //  new_disc_params.push_back(Psol);
@@ -176,7 +180,9 @@ MrHyDE_OptVector ParameterManager<Node>::getCurrentVector() {
 
 template<class Node>
 vector<Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > > ParameterManager<Node>::getDynamicDiscretizedParams() {
-  return discretized_params;
+  vector<vector_RCP> slabs;
+  for (size_t i=0; i<control_params.size(); ++i) { slabs.push_back(this->fullSlab(i, false)); }
+  return slabs;
 }
 
 // ========================================================================================
@@ -359,6 +365,12 @@ vector<Teuchos::RCP<Tpetra::MultiVector<ScalarT,LO,GO,Node> > > ParameterManager
     
     lower->doExport(*lower_over, *param_exporter, Tpetra::REPLACE);
     upper->doExport(*upper_over, *param_exporter, Tpetra::REPLACE);
+    for (vector_RCP * bound : {&lower, &upper}) {
+      if (control_map.is_null()) { break; }
+      vector_RCP ctrl = Teuchos::rcp(new LA_MultiVector(control_map, 1));
+      this->toControl(**bound, *ctrl, false);
+      *bound = ctrl;
+    }
 
     /*
     for (int i = 0; i < numDiscParams; i++) {

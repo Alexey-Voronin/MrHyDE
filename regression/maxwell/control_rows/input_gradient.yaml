@@ -1,0 +1,25 @@
+%YAML 1.1
+---
+ANONYMOUS:
+  Mesh input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Physics input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Discretization input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Parameters input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Functions input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Solver input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Analysis input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Postprocess input file: ../param_riesz_curlcurl/input_riesz.yaml
+  Mesh:
+    Xprocs: 2
+    Zprocs: 1
+  Solver:
+    Parameter Riesz map:
+      output file: riesz.mm
+  Analysis:
+    analysis type: forward+adjoint
+    write gradient to file: true
+    gradient storage file: grad
+  Postprocess:
+    write objective to file: true
+    objective storage file: obj_gradient
+...

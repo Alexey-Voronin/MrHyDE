@@ -123,10 +123,8 @@ namespace MrHyDE {
     /** @brief Update parameters using a ROL-style optimization vector. */
     void updateParams(MrHyDE_OptVector & newparams);
 
-#if defined(MrHyDE_ENABLE_HDSA)
-    /** @brief Update parameters using a multivector for HDSA workflows. */
+    // Stores a full-size field as the current time slab.
     void updateParams(const vector_RCP & newparams);
-#endif
 
     /** @brief Update parameters by numerical list and type ID. */
     void updateParams(const std::vector<ScalarT> & newparams, const int & type);
@@ -182,6 +180,15 @@ namespace MrHyDE {
     /** @brief Constructs parameter mass matrix and diagonal scaling. */
     void setParamMass(Teuchos::RCP<LA_MultiVector> diag,
                       Teuchos::RCP<MrHyDE_ParamRiesz> riesz);
+
+    // Puts the ROL control on map, the rows of param_owned_map the metric reaches.
+    void setControlMap(const Teuchos::RCP<const LA_Map> & map);
+
+    // ctrl = full's control rows, or ctrl += them for a gradient, which must vanish off those rows.
+    void toControl(const LA_MultiVector & full, LA_MultiVector & ctrl, const bool add) const;
+
+    // full = ctrl on the control rows, 0 on the others.
+    void fromControl(const LA_MultiVector & ctrl, LA_MultiVector & full) const;
 
     /** @brief Releases stored memory and cleans up data structures. */
     void purgeMemory();
@@ -244,8 +251,8 @@ namespace MrHyDE {
     Kokkos::View<AD32**,AssemblyDevice> paramdot_KVAD32;
 #endif
 
-    std::vector<vector_RCP> discretized_params;                // Parameter fields stored on owned DOFs
-    std::vector<vector_RCP> discretized_params_over;           // Parameter fields stored on overlapped DOFs
+    Teuchos::RCP<const LA_Map> control_map;                    // Rows the control lives on; null: every row
+    Teuchos::RCP<LA_Import> to_control;                        // param_owned_map -> control_map; null: identity
 
     bool have_dynamic_discretized;                             // Whether discretized parameters change in time
     bool have_dynamic_scalar;                                  // Whether scalar parameters change in time
@@ -330,6 +337,19 @@ namespace MrHyDE {
     Teuchos::RCP<Teuchos::Time> updatetimer      = Teuchos::TimeMonitor::getNewCounter("MrHyDE::ParameterManager::updateParams()");
     Teuchos::RCP<Teuchos::Time> getcurrenttimer  = Teuchos::TimeMonitor::getNewCounter("MrHyDE::ParameterManager::getCurrentParams()");
     
+  private:
+
+    // Slab index on every owned row, or every overlapped row; a new vector each call.
+    vector_RCP fullSlab(const size_t index, const bool over) const;
+
+    // Fills param_slab and param_slab_over with slab index unless they hold it; false if there is no such slab.
+    bool fillSlab(const int index);
+
+    std::vector<vector_RCP> control_params;                    // Stored parameter slabs, on control_map; ROL sees these
+    vector_RCP off_control;                                    // 1 on the rows outside control_map
+    vector_RCP param_slab, param_slab_over;                    // One slab on every owned / overlapped row
+    int param_slab_index = -1;                                 // Slab param_slab holds; -1: refill on next access
+
   };
   
 }

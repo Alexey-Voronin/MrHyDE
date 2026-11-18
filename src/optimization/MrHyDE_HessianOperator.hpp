@@ -19,16 +19,19 @@ class MrHyDE_HessianOperator : public Tpetra::Operator<ScalarT,LO,GO,SolverNode>
   using LA_Map         = Tpetra::Map<LO,GO,SolverNode>;
   using LA_MultiVector = Tpetra::MultiVector<ScalarT,LO,GO,SolverNode>;
   using vector_RCP     = Teuchos::RCP<LA_MultiVector>;
+  using LA_Import      = Tpetra::Import<LO,GO,SolverNode>;
 
 public:
 
   // Control space is slab-major: gid = slab*n + parameter gid, local index = slab*nloc + i.
+  // to_control takes param_map to x's slabs when they hold only the control rows; null means the same rows.
   MrHyDE_HessianOperator(const Teuchos::RCP<ROL::Objective<ScalarT> > & obj,
                          const Teuchos::RCP<ROL::Vector<ScalarT> > & x,
                          const Teuchos::RCP<const LA_Map> & param_map,
                          const ScalarT & fd_step,
-                         const Teuchos::RCP<MrHyDE_ParamRiesz> & riesz)
-  : obj_(obj), x_(x), param_map_(param_map), fd_step_(fd_step), riesz_(riesz) {
+                         const Teuchos::RCP<MrHyDE_ParamRiesz> & riesz,
+                         const Teuchos::RCP<const LA_Import> & to_control = Teuchos::null)
+  : obj_(obj), x_(x), param_map_(param_map), fd_step_(fd_step), riesz_(riesz), to_control_(to_control) {
 
     v_  = x->clone();
     hv_ = x->clone();
@@ -52,7 +55,8 @@ public:
     // apply() overwrites every field entry, so only the scalar block needs zeroing once.
     v_->zero();
 
-    if (!riesz_.is_null()) { w_ = Teuchos::rcp(new LA_MultiVector(param_map,1)); }
+    if (!riesz_.is_null()) { w_ = Teuchos::rcp(new LA_MultiVector(hvf_[0]->getVector()->getMap(),1)); }
+    if (!to_control_.is_null()) { full_ = Teuchos::rcp(new LA_MultiVector(param_map,1)); }
   }
 
   Teuchos::RCP<const LA_Map> getDomainMap() const override { return map_; }
@@ -75,7 +79,9 @@ public:
     for (size_t c=0; c<X.getNumVectors(); ++c) {
 
       for (size_t s=0; s<nslabs; ++s) {
-        vf_[s]->getVector()->assign(*X.getVector(c)->offsetView(param_map_,s*nloc_));
+        const Teuchos::RCP<const LA_MultiVector> xs = X.getVector(c)->offsetView(param_map_,s*nloc_);
+        if (to_control_.is_null()) { vf_[s]->getVector()->assign(*xs); }
+        else { vf_[s]->getVector()->doImport(*xs,*to_control_,Tpetra::INSERT); }
       }
 
       ScalarT tol = fd_step_;
@@ -84,6 +90,7 @@ public:
       for (size_t s=0; s<nslabs; ++s) {
         vector_RCP h = hvf_[s]->getVector();
         if (!riesz_.is_null()) { riesz_->applyInverse({h}, {w_}); h = w_; }
+        if (!to_control_.is_null()) { full_->putScalar(0.0); full_->doExport(*h,*to_control_,Tpetra::INSERT); h = full_; }
         Y.getVectorNonConst(c)->offsetViewNonConst(param_map_,s*nloc_)->update(alpha,*h,beta);
       }
     }
@@ -94,11 +101,12 @@ private:
   Teuchos::RCP<ROL::Objective<ScalarT> > obj_;
   Teuchos::RCP<ROL::Vector<ScalarT> > x_, v_, hv_;
   std::vector<ROL::Ptr<ROL::TpetraMultiVector<ScalarT> > > vf_, hvf_;
-  vector_RCP w_;
+  vector_RCP w_, full_;
   Teuchos::RCP<const LA_Map> map_, param_map_;
   size_t nloc_;
   ScalarT fd_step_;
   Teuchos::RCP<MrHyDE_ParamRiesz> riesz_;
+  Teuchos::RCP<const LA_Import> to_control_;
 
 };
 

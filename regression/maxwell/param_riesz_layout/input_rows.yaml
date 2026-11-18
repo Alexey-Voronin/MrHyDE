@@ -1,0 +1,16 @@
+%YAML 1.1
+---
+ANONYMOUS:
+  Mesh input file: ../param_riesz_batch/input_batch.yaml
+  Physics input file: ../param_riesz_batch/input_batch.yaml
+  Discretization input file: ../param_riesz_batch/input_batch.yaml
+  Parameters input file: ../param_riesz_batch/input_batch.yaml
+  Functions input file: ../param_riesz_batch/input_batch.yaml
+  Solver input file: ../param_riesz_batch/input_batch.yaml
+  Analysis input file: ../param_riesz_batch/input_batch.yaml
+  Postprocess input file: ../param_riesz_batch/input_batch.yaml
+  Solver:
+    Parameter Riesz map:
+      Iterative Settings:
+        min rows per rank: 100
+...

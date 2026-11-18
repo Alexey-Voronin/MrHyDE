@@ -19,7 +19,7 @@ public:
   // P_factor is P with a sparser stored pattern, or null to factor P itself.
   MrHyDE_ParamRieszExact(const matrix_RCP & P_, const std::string & amesos_name_ = "KLU2",
                          const matrix_RCP & P_factor_ = Teuchos::null)
-  : MrHyDE_ParamRiesz(P_), P_factor(P_factor_.is_null() ? P_ : P_factor_), amesos_name(amesos_name_) {}
+  : MrHyDE_ParamRiesz(P_), P_factor(denseIds(P_factor_.is_null() ? P_ : P_factor_)), amesos_name(amesos_name_) {}
 
   // The slabs are the columns of one solve.
   void applyInverse(const std::vector<vector_RCP> & xs, const std::vector<vector_RCP> & ys) const override {
@@ -28,8 +28,8 @@ public:
     size_t nv = 0;
     for (const vector_RCP & x : xs) nv += x->getNumVectors();
     if (b_work.is_null() || b_work->getNumVectors() < nv) {
-      b_work = Teuchos::rcp(new LA_MultiVector(xs[0]->getMap(), nv, false));
-      x_work = Teuchos::rcp(new LA_MultiVector(ys[0]->getMap(), nv, false));
+      b_work = Teuchos::rcp(new LA_MultiVector(P_factor->getRangeMap(), nv, false));
+      x_work = Teuchos::rcp(new LA_MultiVector(P_factor->getDomainMap(), nv, false));
     }
     const vector_RCP b = b_work->subViewNonConst(Teuchos::Range1D(0, nv - 1));
     const vector_RCP x = x_work->subViewNonConst(Teuchos::Range1D(0, nv - 1));
@@ -57,6 +57,29 @@ public:
   }
 
 private:
+
+  // Amesos2 indexes the gathered matrix by global id, so gapped ids become [0,n); the local data are shared.
+  static matrix_RCP denseIds(const matrix_RCP & A) {
+    typedef Tpetra::Map<LO,GO,SolverNode> Map;
+    const Teuchos::RCP<const Map> rows = A->getRowMap();
+    if (rows->getMaxAllGlobalIndex() + 1 == static_cast<GO>(rows->getGlobalNumElements())) return A;
+    const Teuchos::RCP<const Map> dense = Teuchos::rcp(new Map(rows->getGlobalNumElements(),
+      rows->getLocalNumElements(), 0, rows->getComm()));
+    LA_MultiVector ids(rows, 1), col_ids(A->getColMap(), 1);
+    {
+      auto v = ids.getLocalViewHost(Tpetra::Access::OverwriteAll);
+      for (size_t i = 0; i < v.extent(0); ++i) v(i,0) = static_cast<ScalarT>(dense->getGlobalElement(i));
+    }
+    col_ids.doImport(ids, Tpetra::Import<LO,GO,SolverNode>(rows, A->getColMap()), Tpetra::INSERT);
+    std::vector<GO> cols(col_ids.getLocalLength());
+    {
+      auto v = col_ids.getLocalViewHost(Tpetra::Access::ReadOnly);
+      for (size_t c = 0; c < cols.size(); ++c) cols[c] = static_cast<GO>(v(c,0));
+    }
+    const Teuchos::RCP<const Map> dense_cols = Teuchos::rcp(new Map(
+      Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(), Teuchos::ArrayView<const GO>(cols), 0, rows->getComm()));
+    return Teuchos::rcp(new LA_CrsMatrix(A->getLocalMatrixDevice(), dense, dense_cols, dense, dense));
+  }
 
   matrix_RCP P_factor;
   std::string amesos_name;

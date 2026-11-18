@@ -112,9 +112,11 @@ public:
    */
   void setupDiscretizedParamMass();
   vector<bool> resolveParamRieszMetric();
-  void completeParamRieszDiagonal(matrix_RCP & riesz, vector_RCP & diag);
-  // The metric's Krylov solve on the rows the assembly reached, the nonzeros of assembled_diag.
-  Teuchos::RCP<MrHyDE_ParamRiesz> buildIterativeParamRiesz(const vector_RCP & assembled_diag);
+  // P and D on the rows the metric reaches; when those are not every row, the control moves to them.
+  // False when the analysis type never applies the metric, which is then not built.
+  bool restrictParamMetric(matrix_RCP & P, vector_RCP & D);
+  // The metric's Krylov solve on the rows of P.
+  Teuchos::RCP<MrHyDE_ParamRiesz> buildIterativeParamRiesz(const matrix_RCP & P);
   // D0 from nodes to parameter edges, nodal coordinates, and the constant fields as edge vectors.
   void buildParamGradient(matrix_RCP & D0,
                           Teuchos::RCP<Tpetra::MultiVector<typename Teuchos::ScalarTraits<ScalarT>::coordinateType,LO,GO,Node> > & coords,

@@ -11,8 +11,8 @@ from parse_log import solve_iterations, trust_region_rows
 # Parsing input
 
 desc = ''' The Riesz map's control rows on the mesh layout (ranks: mesh), spread over every
-rank (the default) and gathered on one (ranks: 1) must give the same trust-region
-step, and moving them must not raise the Riesz CG count. '''
+rank (the default), gathered on one (ranks: 1) and on as many ranks as 'min rows per rank'
+allows must give the same trust-region step, and moving them must not raise the Riesz CG count. '''
 
 its = mrhyde_test_support(desc)
 
@@ -30,7 +30,7 @@ status = 0
 if its.opts.preprocess:
   status += its.call('echo "  No preprocessing, yet."')
 
-DECKS = ['mesh', 'auto', 'one']
+DECKS = ['mesh', 'auto', 'one', 'rows']
 RIESZ_LIMIT = 500   # the Riesz CG's iteration limit; no other solve in these runs has it
 CG_WINDOW = 3
 logs = {}
@@ -49,7 +49,7 @@ if None in holders.values() or [] in steps.values() or [] in cg.values():
   status += 1
 else:
   s = steps['mesh'][0]
-  for name, want in [('auto', 3), ('one', 1)]:
+  for name, want in [('auto', 3), ('one', 1), ('rows', 2)]:
     r = steps[name][0]
     # A coordinate or nullspace entry moved to the wrong row weakens RefMaxwell and raises the CG count.
     over = max(x - y for x, y in zip(cg[name], cg['mesh'])) if len(cg[name]) == len(cg['mesh']) else None
@@ -64,7 +64,7 @@ else:
       status += 0 if ok else 1
 
 if its.opts.clean and not status:
-  status += its.call('rm -f mrhyde_mesh.log mrhyde_auto.log mrhyde_one.log')
+  status += its.call('rm -f mrhyde_mesh.log mrhyde_auto.log mrhyde_one.log mrhyde_rows.log')
 
 # ==============================================================================
 if status == 0: print('Success.')

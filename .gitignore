@@ -26,5 +26,7 @@ mrhyde
 regression/**/mrhyde.results
 regression/**/*filtered
 regression/**/v.field.*.mm
+regression/maxwell/control_rows/*.mm
+regression/maxwell/control_rows/hess_exact*
 regression/**/objective.txt
 regression/TEST-package.xml

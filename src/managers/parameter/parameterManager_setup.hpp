@@ -432,9 +432,7 @@ void ParameterManager<Node>::setupDiscretizedParameters(vector<vector<Teuchos::R
       if (!use_custom_initial_param_guess) {
         for (size_t i = 0; i < param_dofs_OS[n].size(); i++) {
           //if (have_dynamic_discretized) {
-            for (size_t j=0; j<discretized_params_over.size(); ++j) {
-              discretized_params_over[j]->replaceGlobalValue(param_dofs_OS[n][i],0,initialParamValues[n]);
-            }
+            param_slab_over->replaceGlobalValue(param_dofs_OS[n][i],0,initialParamValues[n]);
           //}
           //discretized_params_over->replaceGlobalValue(param_dofs_OS[n][i],0,initialParamValues[n]);
         }
@@ -444,9 +442,12 @@ void ParameterManager<Node>::setupDiscretizedParameters(vector<vector<Teuchos::R
     }
     //discretized_params->doExport(*discretized_params_over, *param_exporter, Tpetra::REPLACE);
     //if (have_dynamic_discretized) {
-      for (size_t i=0; i<discretized_params_over.size(); ++i) {
-        discretized_params[i]->doExport(*(discretized_params_over[i]), *param_exporter, Tpetra::REPLACE);
+      // Every slab starts from the same initial field.
+      param_slab->doExport(*param_slab_over, *param_exporter, Tpetra::REPLACE);
+      for (size_t i=0; i<control_params.size(); ++i) {
+        control_params[i]->assign(*param_slab);
       }
+      param_slab_index = -1;
     //}
   }
   else {

@@ -14,24 +14,18 @@
 #include <BelosTpetraAdapter.hpp>
 #include <iostream>
 
-// Krylov on the control rows P_live; P is diagonal on the other rows.
+// Krylov on P's rows, laid out as P_live's.
 class MrHyDE_ParamRieszIterative : public MrHyDE_ParamRiesz {
 
 public:
 
-  MrHyDE_ParamRieszIterative(const matrix_RCP & P_, const matrix_RCP & P_live_, const vector_RCP & diag,
+  MrHyDE_ParamRieszIterative(const matrix_RCP & P_, const matrix_RCP & P_live_,
                              const Teuchos::RCP<LA_Operator> & prec_, const MrHyDE::ParamRieszConfig & cfg,
                              const int verbosity_ = 0)
   : MrHyDE_ParamRiesz(P_), krylov_name(cfg.krylov == "GMRES" ? "Pseudo Block GMRES" : "Pseudo Block CG"),
     P_live(P_live_), prec(prec_), belos_params(cfg.belos), verbosity(verbosity_), strict(cfg.strict),
     slab_cap(cfg.slabCap()) {
-    inv_diag = Teuchos::rcp(new LA_MultiVector(diag->getMap(), 1));
-    inv_diag->reciprocal(*diag);
     to_live = Teuchos::rcp(new Tpetra::Import<LO,GO,SolverNode>(P->getRowMap(), P_live->getRowMap()));
-    live_rows = Teuchos::rcp(new LA_MultiVector(P->getRowMap(), 1));
-    LA_MultiVector ones(P_live->getRowMap(), 1);
-    ones.putScalar(1.0);
-    live_rows->doExport(ones, *to_live, Tpetra::INSERT);
     rank = P_live->getRowMap()->getComm()->getRank();
   }
 
@@ -39,9 +33,9 @@ public:
   void applyInverse(const std::vector<vector_RCP> & xs, const std::vector<vector_RCP> & ys) const override {
     std::vector<vector_RCP> bx, by;
     for (size_t s = 0; s < xs.size(); ++s) {
-      // A slab zero on the control rows needs only the diagonal; in a batch it would break CG under a Deflation Quorum above 1.
-      if (slab_cap > 1 && controlRowsZero(*xs[s])) {
-        ys[s]->elementWiseMultiply(1.0, *inv_diag->getVector(0), *xs[s], 0.0);
+      // A zero slab needs no solve; in a batch it would break CG under a Deflation Quorum above 1.
+      if (slab_cap > 1 && isZero(*xs[s])) {
+        ys[s]->putScalar(0.0);
       }
       else { bx.push_back(xs[s]); by.push_back(ys[s]); }
     }
@@ -65,13 +59,9 @@ public:
 
 private:
 
-  bool controlRowsZero(const LA_MultiVector & x) const {
-    if (mask_work.is_null() || mask_work->getNumVectors() != x.getNumVectors()) {
-      mask_work = Teuchos::rcp(new LA_MultiVector(x.getMap(), x.getNumVectors(), false));
-    }
-    mask_work->elementWiseMultiply(1.0, *live_rows->getVector(0), x, 0.0);
+  static bool isZero(const LA_MultiVector & x) {
     Teuchos::Array<typename LA_MultiVector::mag_type> nrm(x.getNumVectors());
-    mask_work->normInf(nrm());
+    x.normInf(nrm());
     for (const auto v : nrm) { if (v != 0) return false; }
     return true;
   }
@@ -90,7 +80,6 @@ private:
     size_t c = 0;
     for (size_t s = 0; s < xs.size(); ++s) {
       const size_t k = xs[s]->getNumVectors();
-      ys[s]->elementWiseMultiply(1.0, *inv_diag->getVector(0), *xs[s], 0.0);
       b->subViewNonConst(Teuchos::Range1D(c, c + k - 1))->doImport(*xs[s], *to_live, Tpetra::INSERT);
       c += k;
     }
@@ -137,9 +126,6 @@ private:
   int rank = 0;
   mutable bool warned = false;
   mutable vector_RCP b_work, z_work;   // control-row RHS and solution, reused across applies
-  vector_RCP live_rows;                // 1 on P's control rows, 0 on its diagonal-only rows
-  mutable vector_RCP mask_work;
-  vector_RCP inv_diag;
   Teuchos::RCP<Tpetra::Import<LO,GO,SolverNode> > to_live;
   mutable Teuchos::RCP<Belos::LinearProblem<ScalarT,LA_MultiVector,LA_Operator> > problem;
   mutable Teuchos::RCP<Belos::SolverManager<ScalarT,LA_MultiVector,LA_Operator> > krylov;

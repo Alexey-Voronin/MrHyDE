@@ -1163,16 +1163,7 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
   }
   
 
-  vector_RCP assembled_diag;
-  if (param_riesz.apply == "iterative") {
-    assembled_diag = Teuchos::rcp(new LA_MultiVector(*diagParamMass, Teuchos::Copy));
-  }
-  
-  // Before fillComplete: the owned matrix has no entry in a row the assembly never
-  // reached, so the missing diagonal has to be inserted rather than replaced.
-  this->completeParamRieszDiagonal(paramMass, diagParamMass);
-  
-  if (compute_matrix) {
+  if (compute_matrix && !paramMass->isFillComplete()) {
     linalg->fillComplete(paramMass);
   }
   
@@ -1180,35 +1171,50 @@ void SolverManager<Node>::setupDiscretizedParamMass() {
     linalg->writeMatrixToFile(paramMass, param_riesz.file);
   }
   
+  matrix_RCP P;
+  vector_RCP D;
+  if (!this->restrictParamMetric(P, D)) {
+    return;
+  }
+  
   Teuchos::RCP<MrHyDE_ParamRiesz> riesz;
   size_t dropped_zeros = 0;
   // Only the exact form needs a solver; the diagonal is inverted entrywise.
   if (param_riesz.apply == "exact") {
-    matrix_RCP factored = paramMass;
+    matrix_RCP factored = P;
     // The parameter graph spans the whole mesh, so outside the metric's blocks it stores zeros.
     if (param_riesz.drop_zeros) {
       factored = block_prec::detail::filterCopyCrs<Node>(
-        *paramMass, paramMass->getRowMap(), paramMass->getColMap(), paramMass->getDomainMap(),
-        paramMass->getRangeMap(), block_prec::detail::KeepAllRows(),
+        *P, P->getRowMap(), P->getColMap(), P->getDomainMap(),
+        P->getRangeMap(), block_prec::detail::KeepAllRows(),
         block_prec::detail::DropExactZeros());
-      dropped_zeros = paramMass->getGlobalNumEntries() - factored->getGlobalNumEntries();
+      dropped_zeros = P->getGlobalNumEntries() - factored->getGlobalNumEntries();
     }
-    riesz = Teuchos::rcp(new MrHyDE_ParamRieszExact(paramMass, param_riesz.solver, factored));
+    riesz = Teuchos::rcp(new MrHyDE_ParamRieszExact(P, param_riesz.solver, factored));
   }
   else if (param_riesz.apply == "iterative") {
-    riesz = this->buildIterativeParamRiesz(assembled_diag);
+    riesz = this->buildIterativeParamRiesz(P);
+    if (P != paramMass) {
+      D = Teuchos::rcp(new LA_MultiVector(params->control_map, 1));
+      params->toControl(*diagParamMass, *D, false);
+    }
   }
   
-  params->setParamMass(diagParamMass, riesz);
+  params->setParamMass(D, riesz);
   
   if (verbosity >= 5 && Comm->getRank() == 0) {
     const auto nblocks_used = std::count(include_block.begin(), include_block.end(), true);
     std::cout << "[RieszMap] P = " << param_riesz.l2_weight << "*M + " << param_riesz.semi_weight
               << "*S over " << nblocks_used << " of " << include_block.size() << " blocks, apply "
               << param_riesz.apply << ", dim " << paramMass->getGlobalNumRows()
+              << (P != paramMass ? ", control rows " + std::to_string(P->getGlobalNumRows()) : "")
               << (param_riesz.drop_zeros ? ", -" + std::to_string(dropped_zeros) + " zeros" : "")
               << std::endl;
   }
+  
+  // The metric keeps what it applies; the full matrix and diagonal are needed only during setup.
+  paramMass = Teuchos::null;
+  diagParamMass = Teuchos::null;
   
   debugger->print("**** Finished SolverManager::setupDiscretizedParamMass()");
   
@@ -1390,49 +1396,6 @@ vector<bool> SolverManager<Node>::resolveParamRieszMetric() {
                              "Riesz map: a seminorm cannot be lumped; unset lump mass");
 
   return include_block;
-}
-
-// ========================================================================================
-// Dofs outside the metric's blocks carry no control; give them the mean live diagonal so P is invertible.
-// ========================================================================================
-
-template<class Node>
-void SolverManager<Node>::completeParamRieszDiagonal(matrix_RCP & riesz, vector_RCP & diag) {
-
-  // Single rank already fillComplete'd this matrix in getParamMass; reopen so dead-row diagonals insert.
-  if (riesz->isFillComplete()) { riesz->resumeFill(); }
-
-  auto dview = diag->template getLocalView<HostDevice>(Tpetra::Access::ReadWrite);
-  
-  ScalarT local_sum = 0.0;
-  GO local_live = 0;
-  for (size_t i=0; i<dview.extent(0); ++i) {
-    if (dview(i,0) != 0.0) { local_sum += dview(i,0); ++local_live; }
-  }
-  
-  ScalarT global_sum = 0.0;
-  GO global_live = 0;
-  Teuchos::reduceAll<int,ScalarT>(*Comm, Teuchos::REDUCE_SUM, 1, &local_sum, &global_sum);
-  Teuchos::reduceAll<int,GO>(*Comm, Teuchos::REDUCE_SUM, 1, &local_live, &global_live);
-  
-  TEUCHOS_TEST_FOR_EXCEPTION(global_live == 0, std::runtime_error,
-                             "Riesz map: the operator assembled nothing");
-  
-  const ScalarT fill = global_sum/static_cast<ScalarT>(global_live);
-  
-  for (size_t i=0; i<dview.extent(0); ++i) {
-    if (dview(i,0) != 0.0) { continue; }
-    dview(i,0) = fill;
-    const GO grow = riesz->getRowMap()->getGlobalElement(i);
-    riesz->insertGlobalValues(grow, Teuchos::tuple<GO>(grow), Teuchos::tuple<ScalarT>(fill));
-  }
-  
-  const GO global_dead = static_cast<GO>(diag->getGlobalLength()) - global_live;
-  if (global_dead > 0 && verbosity >= 5 && Comm->getRank() == 0) {
-    std::cout << "[RieszMap] " << global_dead << " dofs outside the metric's blocks given diagonal "
-              << fill << std::endl;
-  }
-  
 }
 
 //========================================================================

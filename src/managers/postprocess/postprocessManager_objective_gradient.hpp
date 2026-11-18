@@ -1653,7 +1653,7 @@ void PostprocessManager<Node>::computeSensitivities(vector<vector_RCP> &u,
     }
     
     auto sens = this->computeDiscreteSensitivities(u, adjoint, current_time, tindex, deltat);
-    curr_grad->update(1.0, *sens, 1.0);
+    params->toControl(*sens, *curr_grad, true);
 
     vector_RCP sens_over = linalg->getNewOverlappedParamVector();
     auto sens_kv = sens_over->template getLocalView<LA_device>(Tpetra::Access::ReadWrite);
@@ -1668,7 +1668,7 @@ void PostprocessManager<Node>::computeSensitivities(vector<vector_RCP> &u,
     
     vector_RCP sensr = linalg->getNewParamVector();
     linalg->exportParamVectorFromOverlapped(sensr, sens_over);
-    curr_grad->update(1.0, *sensr, 1.0);
+    params->toControl(*sensr, *curr_grad, true);
 
   }
   //this->saveObjectiveGradientData(gradient);
